@@ -41,3 +41,45 @@ def get_all_documents(
 ):
     documents = db.query(models.Document).all()
     return documents
+
+# 3. Endpoint untuk Memperbarui Dokumen (Update - Partial)
+@router.put("/{document_id}", response_model=schemas.DocumentResponse)
+def update_document(
+    document_id: int, 
+    doc_update: schemas.DocumentUpdate, 
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    # Cari dokumen berdasarkan ID
+    document_query = db.query(models.Document).filter(models.Document.document_id == document_id)
+    document = document_query.first()
+    
+    if document is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dokumen tidak ditemukan")
+        
+    # Hanya ambil data yang benar-benar dikirim/diisi oleh user (agar tidak error 422)
+    update_data = doc_update.model_dump(exclude_unset=True)
+    
+    document_query.update(update_data, synchronize_session=False)
+    db.commit()
+    
+    return document_query.first()
+
+# 4. Endpoint untuk Menghapus Dokumen (Delete)
+@router.delete("/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_document(
+    document_id: int, 
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    # Cari dokumen berdasarkan ID
+    document_query = db.query(models.Document).filter(models.Document.document_id == document_id)
+    document = document_query.first()
+    
+    if document is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dokumen tidak ditemukan")
+        
+    document_query.delete(synchronize_session=False)
+    db.commit()
+    
+    return {"message": "Dokumen berhasil dihapus"}
