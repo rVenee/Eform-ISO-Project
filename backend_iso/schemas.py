@@ -96,3 +96,16 @@ class DocumentContentResponse(DocumentContentBase):
 
     class Config:
         from_attributes = True
+
+# ========================================
+# SCHEMAS UNTUK DOCUMENTS ATTACHMENTS
+# ========================================
+class AttachmentResponse(BaseModel):
+    attachment_id: int
+    document_id: int
+    subchapter_reference: str
+    file_path: str
+    upload_date: datetime
+
+    class Config:
+        from_attributes = True

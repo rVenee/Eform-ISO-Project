@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, File, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, status, File, UploadFile, Form
 from sqlalchemy.orm import Session
 from database import get_db
 import models, schemas
@@ -138,13 +138,11 @@ def get_document_detail(
         "isi_form": content.form_data if content else None
     }
 
-# Pastikan folder 'uploads' otomatis terbuat jika belum ada di server
-os.makedirs("uploads", exist_ok=True)
-
 # 7. Endpoint untuk Mengunggah Lampiran File (Attachment)
-@router.post("/{document_id}/attachments")
+@router.post("/{document_id}/attachments", response_model=schemas.AttachmentResponse)
 def upload_attachment(
     document_id: int,
+    subchapter_reference: str = Form(...), # Menerima input referensi subbab
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
@@ -166,8 +164,14 @@ def upload_attachment(
     # Kembalikan link URL agar bisa diakses Frontend
     file_url = f"http://127.0.0.1:8000/uploads/{file_name}"
     
-    return {
-        "filename": file.filename,
-        "file_url": file_url,
-        "message": "File berhasil diunggah"
-    }
+    # Simpan rekam jejak ke database (Tabel DOCUMENTS_ATTACHMENTS)
+    new_attachment = models.DocumentAttachment(
+        document_id=document_id,
+        subchapter_reference=subchapter_reference,
+        file_path=file_url
+    )
+    db.add(new_attachment)
+    db.commit()
+    db.refresh(new_attachment)
+    
+    return new_attachment
