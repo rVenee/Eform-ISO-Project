@@ -4,8 +4,10 @@ from sqlalchemy import text
 from database import get_db
 import auth
 import document
+from fastapi.staticfiles import StaticFiles
 
 app = FastAPI(title="E-Form ISO API")
+app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
 @app.get("/")
 def read_root():

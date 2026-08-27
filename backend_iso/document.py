@@ -1,8 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, File, UploadFile
 from sqlalchemy.orm import Session
 from database import get_db
 import models, schemas
 from auth import get_current_user
+import os
+import shutil
 
 # Inisialisasi router untuk dokumen
 router = APIRouter(prefix="/documents", tags=["Documents"])
@@ -134,4 +136,38 @@ def get_document_detail(
     return {
         "metadata": document,
         "isi_form": content.form_data if content else None
+    }
+
+# Pastikan folder 'uploads' otomatis terbuat jika belum ada di server
+os.makedirs("uploads", exist_ok=True)
+
+# 7. Endpoint untuk Mengunggah Lampiran File (Attachment)
+@router.post("/{document_id}/attachments")
+def upload_attachment(
+    document_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    # Cek ketersediaan dokumen induk
+    document = db.query(models.Document).filter(models.Document.document_id == document_id).first()
+    if not document:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dokumen tidak ditemukan")
+        
+    # Bersihkan nama file dari spasi agar URL aman
+    safe_filename = file.filename.replace(" ", "_")
+    file_name = f"doc{document_id}_{safe_filename}"
+    file_path = f"uploads/{file_name}"
+    
+    # Simpan file secara fisik ke folder uploads
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+        
+    # Kembalikan link URL agar bisa diakses Frontend
+    file_url = f"http://127.0.0.1:8000/uploads/{file_name}"
+    
+    return {
+        "filename": file.filename,
+        "file_url": file_url,
+        "message": "File berhasil diunggah"
     }
