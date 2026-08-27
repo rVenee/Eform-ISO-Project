@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 from database import get_db
 import auth
+import document
 
 app = FastAPI(title="E-Form ISO API")
 
@@ -19,3 +20,5 @@ def test_database_connection(db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"Koneksi gagal: {str(e)}")
 
 app.include_router(auth.router)
+
+app.include_router(document.router)
