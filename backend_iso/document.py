@@ -83,3 +83,55 @@ def delete_document(
     db.commit()
     
     return {"message": "Dokumen berhasil dihapus"}
+
+# 5. Endpoint untuk Menyimpan/Memperbarui Isi Form Dokumen (JSON)
+@router.post("/{document_id}/contents", response_model=schemas.DocumentContentResponse)
+def save_document_content(
+    document_id: int,
+    content: schemas.DocumentContentCreate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    # Pastikan dokumen induknya ada
+    document = db.query(models.Document).filter(models.Document.document_id == document_id).first()
+    if not document:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dokumen tidak ditemukan")
+
+    # Cek apakah sudah ada isinya
+    existing_content = db.query(models.DocumentContent).filter(models.DocumentContent.document_id == document_id).first()
+    
+    if existing_content:
+        existing_content.form_data = content.form_data
+        db.commit()
+        db.refresh(existing_content)
+        return existing_content
+    else:
+        new_content = models.DocumentContent(
+            document_id=document_id,
+            form_data=content.form_data
+        )
+        db.add(new_content)
+        db.commit()
+        db.refresh(new_content)
+        return new_content
+
+# 6. Endpoint untuk Melihat Detail 1 Dokumen Beserta Isinya
+@router.get("/{document_id}/detail")
+def get_document_detail(
+    document_id: int, 
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    # Ambil metadata
+    document = db.query(models.Document).filter(models.Document.document_id == document_id).first()
+    if not document:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dokumen tidak ditemukan")
+        
+    # Ambil isi form
+    content = db.query(models.DocumentContent).filter(models.DocumentContent.document_id == document_id).first()
+    
+    # Gabungkan untuk frontend
+    return {
+        "metadata": document,
+        "isi_form": content.form_data if content else None
+    }

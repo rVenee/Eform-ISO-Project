@@ -2,7 +2,7 @@ from pydantic import BaseModel
 from typing import Optional
 from datetime import date, datetime
 from datetime import date, datetime
-from typing import Optional
+from typing import Optional, Dict, Any
 
 # ========================================
 # SCHEMAS UNTUK USERS
@@ -77,6 +77,22 @@ class DocumentResponse(DocumentCreate):
     status: str
     created_date: datetime
     updated_date: datetime
+
+    class Config:
+        from_attributes = True
+
+# ========================================
+# SCHEMAS UNTUK DOCUMENT CONTENTS (ISI FORM)
+# ========================================
+class DocumentContentBase(BaseModel):
+    form_data: Dict[str, Any]
+
+class DocumentContentCreate(DocumentContentBase):
+    pass
+
+class DocumentContentResponse(DocumentContentBase):
+    content_id: int
+    document_id: int
 
     class Config:
         from_attributes = True
