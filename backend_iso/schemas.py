@@ -109,3 +109,23 @@ class AttachmentResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+# ========================================
+# SCHEMAS UNTUK WORKFLOW & REVISION LOGS
+# ========================================
+class DocumentReview(BaseModel):
+    status: str 
+    document_number: Optional[str] = None
+    revision_number: Optional[str] = None
+    effective_date: Optional[date] = None
+    notes: Optional[str] = None # Untuk catatan revisi jika ditolak
+
+class RevisionLogResponse(BaseModel):
+    log_id: int
+    document_id: int
+    reviewer_id: int
+    notes: str
+    date_create: datetime
+
+    class Config:
+        from_attributes = True

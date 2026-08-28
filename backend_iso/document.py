@@ -175,3 +175,52 @@ def upload_attachment(
     db.refresh(new_attachment)
     
     return new_attachment
+
+# 8. Endpoint untuk Review Dokumen (Admin ISO)
+@router.put("/{document_id}/review", response_model=schemas.DocumentResponse)
+def review_document(
+    document_id: int,
+    review_data: schemas.DocumentReview,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    # Cari dokumen yang dituju
+    document = db.query(models.Document).filter(models.Document.document_id == document_id).first()
+    if not document:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dokumen tidak ditemukan")
+        
+    # Perbarui status sesuai keputusan
+    document.status = review_data.status
+    
+    if review_data.status == "Disetujui":
+        document.document_number = review_data.document_number
+        document.revision_number = review_data.revision_number
+        document.effective_date = review_data.effective_date
+        
+    elif review_data.status == "Direvisi":
+        if not review_data.notes:
+            raise HTTPException(status_code=400, detail="Catatan revisi wajib diisi jika dokumen ditolak")
+            
+        # Simpan jejak catatan penolakan ke tabel REVISION_LOGS
+        new_log = models.RevisionLog(
+            document_id=document_id,
+            reviewer_id=current_user.user_id,
+            notes=review_data.notes
+        )
+        db.add(new_log)
+        
+    db.commit()
+    db.refresh(document)
+    
+    return document
+
+# 9. Endpoint untuk Melihat Riwayat Revisi Dokumen
+@router.get("/{document_id}/revisions", response_model=list[schemas.RevisionLogResponse])
+def get_revision_logs(
+    document_id: int, 
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    # Ambil log dan urutkan dari yang paling baru
+    logs = db.query(models.RevisionLog).filter(models.RevisionLog.document_id == document_id).order_by(models.RevisionLog.date_create.desc()).all()
+    return logs
