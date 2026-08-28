@@ -3,6 +3,11 @@ from typing import Optional
 from datetime import date, datetime
 from datetime import date, datetime
 from typing import Optional, Dict, Any
+from enum import Enum
+
+class RoleEnum(str, Enum):
+    admin_iso = "admin_iso"
+    user = "user"
 
 # ========================================
 # SCHEMAS UNTUK USERS
@@ -10,7 +15,7 @@ from typing import Optional, Dict, Any
 class UserBase(BaseModel):
     username: str
     full_name: str
-    role: str
+    role: RoleEnum
 
 class UserCreate(UserBase):
     password: str # Password wajib saat membuat user
@@ -129,3 +134,11 @@ class RevisionLogResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+# ========================================
+# SCHEMAS UNTUK MANAJEMEN USER (ADMIN IT)
+# ========================================
+class UserUpdate(BaseModel):
+    full_name: Optional[str] = None
+    role: Optional[RoleEnum] = None
+    password: Optional[str] = None

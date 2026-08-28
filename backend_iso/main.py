@@ -2,9 +2,11 @@ from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from database import get_db
+from fastapi.staticfiles import StaticFiles
 import auth
 import document
-from fastapi.staticfiles import StaticFiles
+import users
+
 
 app = FastAPI(title="E-Form ISO API")
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
@@ -24,3 +26,5 @@ def test_database_connection(db: Session = Depends(get_db)):
 app.include_router(auth.router)
 
 app.include_router(document.router)
+
+app.include_router(users.router)
