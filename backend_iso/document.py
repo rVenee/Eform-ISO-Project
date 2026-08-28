@@ -1,6 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, status, File, UploadFile, Form
 from sqlalchemy.orm import Session
 from database import get_db
+from typing import Optional
+from datetime import date
+from sqlalchemy import or_
 import models, schemas
 from auth import get_current_user
 import os
@@ -35,13 +38,45 @@ def create_document(
     
     return new_document
 
-# 2. Endpoint untuk Melihat Semua Daftar Dokumen (Read)
+# 2. Endpoint untuk Melihat Daftar Dokumen (Read dengan Filter & Pencarian)
 @router.get("/", response_model=list[schemas.DocumentResponse])
 def get_all_documents(
+    category: Optional[str] = None,
+    status: Optional[str] = None,
+    search: Optional[str] = None,
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
-    documents = db.query(models.Document).all()
+    # Mulai dengan mengambil semua dokumen
+    query = db.query(models.Document)
+    
+    # Filter kategori (contoh: 'WI', 'SOP')
+    if category:
+        query = query.filter(models.Document.category == category)
+        
+    # Filter status (contoh: 'Disetujui', 'Direvisi')
+    if status:
+        query = query.filter(models.Document.status == status)
+        
+    # Filter pencarian teks (mencari di Judul ATAU Nomor Dokumen)
+    if search:
+        query = query.filter(
+            or_(
+                models.Document.title.ilike(f"%{search}%"),
+                models.Document.document_number.ilike(f"%{search}%")
+            )
+        )
+        
+    # Filter rentang waktu pembuatan
+    if start_date:
+        query = query.filter(models.Document.created_date >= start_date)
+    if end_date:
+        query = query.filter(models.Document.created_date <= end_date)
+        
+    # Urutkan dari yang paling baru diubah
+    documents = query.order_by(models.Document.updated_date.desc()).all()
     return documents
 
 # 3. Endpoint untuk Memperbarui Dokumen (Update - Partial)
