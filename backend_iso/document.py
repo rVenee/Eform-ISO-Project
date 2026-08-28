@@ -4,6 +4,10 @@ from database import get_db
 from typing import Optional
 from datetime import date
 from sqlalchemy import or_
+from fastapi.responses import FileResponse
+from docxtpl import DocxTemplate, InlineImage
+from docx.shared import Mm
+from docx2pdf import convert
 import models, schemas
 from auth import get_current_user
 import os
@@ -28,6 +32,7 @@ def create_document(
         document_number=doc.document_number,
         revision_number=doc.revision_number,
         effective_date=doc.effective_date,
+        prepared_date=date.today(),
         user_id=current_user.user_id, # Otomatis terikat ke user yang sedang login
         status="Draft"                # Status awal otomatis Draft
     )
@@ -223,6 +228,9 @@ def review_document(
     document = db.query(models.Document).filter(models.Document.document_id == document_id).first()
     if not document:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dokumen tidak ditemukan")
+
+    if not document.checked_date:
+        document.checked_date = date.today()
         
     # Perbarui status sesuai keputusan
     document.status = review_data.status
@@ -231,6 +239,7 @@ def review_document(
         document.document_number = review_data.document_number
         document.revision_number = review_data.revision_number
         document.effective_date = review_data.effective_date
+        document.approved_date = date.today()
         
     elif review_data.status == "Direvisi":
         if not review_data.notes:
@@ -259,3 +268,88 @@ def get_revision_logs(
     # Ambil log dan urutkan dari yang paling baru
     logs = db.query(models.RevisionLog).filter(models.RevisionLog.document_id == document_id).order_by(models.RevisionLog.date_create.desc()).all()
     return logs
+
+# 10. Endpoint untuk Mencetak Dokumen Final (Otomatis Convert Word ke PDF)
+@router.get("/{document_id}/export")
+def export_document_pdf(
+    document_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    # 1. Ambil Data Dokumen dan Isinya
+    document = db.query(models.Document).filter(models.Document.document_id == document_id).first()
+    content = db.query(models.DocumentContent).filter(models.DocumentContent.document_id == document_id).first()
+    
+    if not document or not content:
+        raise HTTPException(status_code=404, detail="Dokumen atau isi form tidak ditemukan")
+
+    # 2. Siapkan Context Data dengan Nama Variabel yang Persis dengan Template Word
+    context = content.form_data.copy()
+    
+    # Metadata Dokumen
+    context["judul_instruksi"] = document.title if document.title else "-"
+    context["nomor_dokumen"] = document.document_number if document.document_number else "-"
+    context["nomor_revisi"] = document.revision_number if document.revision_number else "-"
+    
+    context["tanggal_efektif"] = document.effective_date.strftime("%d-%m-%Y") if document.effective_date else "-"
+    
+    # Nama Personil
+    context["disiapkan_oleh"] = document.creator_name if document.creator_name else "-"
+    context["diperiksa_oleh"] = document.checked_by if document.checked_by else "-"
+    context["disetujui_oleh"] = document.approved_by if document.approved_by else "-"
+    
+    # Tanggal Tanda Tangan
+    context["tanggal_disiapkan"] = document.prepared_date.strftime("%d-%m-%Y") if document.prepared_date else "-"
+    context["tanggal_diperiksa"] = document.checked_date.strftime("%d-%m-%Y") if document.checked_date else "-"
+    context["tanggal_disetujui"] = document.approved_date.strftime("%d-%m-%Y") if document.approved_date else "-"
+    
+    # 3. Panggil Template Word
+    template_path = "templates/template_wi.docx"
+    doc = DocxTemplate(template_path)
+    
+    # 4. Sisipkan Gambar Lampiran secara Dinamis
+    if "daftar_lampiran" in context:
+        for lampiran in context["daftar_lampiran"]:
+            ref_subbab = lampiran.get("nomor_subbab")
+            
+            # Cari lampiran fisik berdasarkan nomor subbab
+            attachment = db.query(models.DocumentAttachment).filter(
+                models.DocumentAttachment.document_id == document_id,
+                models.DocumentAttachment.subchapter_reference == ref_subbab
+            ).first()
+            
+            if attachment:
+                # Ubah URL kembali menjadi path folder lokal
+                local_image_path = attachment.file_path.split("8000/")[-1]
+                
+                if os.path.exists(local_image_path):
+                    # Ubah menjadi Objek Gambar
+                    lampiran["objek_media"] = InlineImage(doc, local_image_path, width=Mm(150))
+                else:
+                    lampiran["objek_media"] = "[File gambar fisik hilang dari server]"
+            else:
+                lampiran["objek_media"] = "[Tidak ada lampiran yang diunggah untuk subbab ini]"
+
+    # 5. Render data dan gambar ke template
+    doc.render(context)
+    
+    # 6. Simpan sebagai .docx sementara (Temporary)
+    temp_docx_name = f"doc_{document_id}_temp.docx"
+    temp_docx_path = f"uploads/{temp_docx_name}"
+    doc.save(temp_docx_path)
+
+    # 7. Konversi ke PDF
+    final_pdf_name = f"doc_{document_id}_final.pdf"
+    final_pdf_path = f"uploads/{final_pdf_name}"
+    convert(temp_docx_path, final_pdf_path)
+
+    # 8. Bersihkan file .docx sementara
+    if os.path.exists(temp_docx_path):
+        os.remove(temp_docx_path)
+
+    # 9. Kirim File PDF Final ke User
+    return FileResponse(
+        path=final_pdf_path, 
+        filename=final_pdf_name, 
+        media_type='application/pdf'
+    )

@@ -32,6 +32,10 @@ class Document(Base):
     status = Column(Enum('Draft', 'Menunggu', 'Direview', 'Disetujui', 'Direvisi'), default='Draft')
     created_date = Column(TIMESTAMP, server_default=func.now())
     updated_date = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now())
+    effective_date = Column(Date, nullable=True)
+    prepared_date = Column(Date, nullable=True)
+    checked_date = Column(Date, nullable=True)
+    approved_date = Column(Date, nullable=True)
 
     # Relasi dua arah
     owner = relationship("User", back_populates="documents")
