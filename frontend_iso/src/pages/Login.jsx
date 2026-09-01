@@ -5,8 +5,6 @@ import logoISO from '../assets/logo_iso.png';
 import logoIK from '../assets/logo_ik.png';  
 
 export default function Login() {
-  // Menggunakan state 'email' atau 'username' tergantung setup backend Anda.
-  // Di sini saya asumsikan backend menerima 'email', tapi label UI tetap "Username" sesuai desain Anda.
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -31,9 +29,10 @@ export default function Login() {
       });
       
       localStorage.setItem('token', response.data.access_token);
-      localStorage.setItem('role', response.data.role); 
+      localStorage.setItem('role', response.data.user_info.role);
+      localStorage.setItem('full_name', response.data.user_info.full_name);
       
-      if (response.data.role === 'admin') {
+      if (response.data.user_info.role === 'admin') {
         navigate('/admin');
       } else {
         navigate('/dashboard');

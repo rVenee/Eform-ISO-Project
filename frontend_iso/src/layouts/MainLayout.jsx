@@ -3,15 +3,22 @@ import {
   FileText, GitBranch, ClipboardCheck, FolderClosed, 
   LayoutGrid, History, Headset, ChevronDown, LogOut 
 } from 'lucide-react';
+import { useState, useEffect } from 'react';
 import logoIK from '../assets/logo_ik.png'; 
 
 export default function MainLayout() {
   const location = useLocation();
   const navigate = useNavigate();
   
-  // Mengambil informasi role dari local storage untuk penyesuaian UI
+  // Mengambil informasi role dari local storage
   const userRole = localStorage.getItem('role');
   const isAdmin = userRole === 'admin' || location.pathname.startsWith('/admin');
+  const [fullName, setFullName] = useState('');
+
+  useEffect(() => {
+    const storedName = localStorage.getItem('full_name') || 'User IKPP'; 
+    setFullName(storedName);
+  }, []);
 
   const handleLogout = () => {
     localStorage.removeItem('token');
@@ -26,7 +33,7 @@ export default function MainLayout() {
   const getPageTitle = () => {
     switch(location.pathname) {
       case '/dashboard': return 'Riwayat Saya';
-      case '/wi': return 'Work Instruction';
+      case '/form-wi': return 'Work Instruction';
       case '/others': return 'Others';
       case '/admin': return 'Dashboard ISO';
       default: return 'E-Form ISO';
@@ -65,7 +72,7 @@ export default function MainLayout() {
                 <Link to="/sop" className={`flex items-center gap-3 py-2.5 text-sm ${isActive('/sop')}`}>
                   <GitBranch size={18} strokeWidth={2.5} /> SOP
                 </Link>
-                <Link to="/wi" className={`flex items-center gap-3 py-2.5 text-sm ${isActive('/wi')}`}>
+                <Link to="/form-wi" className={`flex items-center gap-3 py-2.5 text-sm ${isActive('/wi')}`}>
                   <ClipboardCheck size={18} strokeWidth={2.5} /> WI
                 </Link>
                 <Link to="/fm-fr" className={`flex items-center gap-3 py-2.5 text-sm ${isActive('/fm-fr')}`}>
@@ -94,8 +101,8 @@ export default function MainLayout() {
 
         {/* Profil Bawah */}
         <div className="p-5 border-t border-gray-200">
-          <p className="text-sm font-bold text-gray-600 text-center">
-            {isAdmin ? 'Admin ISO' : 'User IKPP'}
+          <p className="text-sm font-bold text-gray-600 text-center truncate px-2" title={fullName}>
+            {fullName}
           </p>
         </div>
       </aside>

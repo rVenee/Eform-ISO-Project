@@ -34,7 +34,7 @@ def create_document(
         effective_date=doc.effective_date,
         prepared_date=date.today(),
         user_id=current_user.user_id, # Otomatis terikat ke user yang sedang login
-        status="Draft"                # Status awal otomatis Draft
+        status=doc.status if doc.status else "Draft"
     )
     
     db.add(new_document)
