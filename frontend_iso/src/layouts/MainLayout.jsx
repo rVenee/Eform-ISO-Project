@@ -12,7 +12,7 @@ export default function MainLayout() {
   
   // Mengambil informasi role dari local storage
   const userRole = localStorage.getItem('role');
-  const isAdmin = userRole === 'admin' || location.pathname.startsWith('/admin');
+  const isAdmin = userRole === 'admi_iso' || location.pathname.startsWith('/admin');
   const [fullName, setFullName] = useState('');
 
   useEffect(() => {
@@ -26,14 +26,32 @@ export default function MainLayout() {
     navigate('/');
   };
 
-  const isActive = (path) => location.pathname === path 
-    ? "text-[#126863] font-bold border-l-4 border-[#126863] bg-white pl-5" 
-    : "text-gray-500 font-medium pl-6 hover:bg-gray-50 hover:text-gray-800 border-l-4 border-transparent";
+  const isActive = (path) => {
+    // Jika path adalah form-wi, aktifkan juga jika URL sedang berada di /wi/id
+    if (path === '/form-wi' && (location.pathname === '/form-wi' || location.pathname.startsWith('/wi/'))) {
+      return "text-[#126863] font-bold border-l-4 border-[#126863] bg-white pl-5";
+    }
+    // Jika path adalah others, aktifkan juga jika URL sedang berada di /others/id
+    if (path === '/others' && location.pathname.startsWith('/others')) {
+      return "text-[#126863] font-bold border-l-4 border-[#126863] bg-white pl-5";
+    }
+    
+    // Logika default
+    return location.pathname === path 
+      ? "text-[#126863] font-bold border-l-4 border-[#126863] bg-white pl-5" 
+      : "text-gray-500 font-medium pl-6 hover:bg-gray-50 hover:text-gray-800 border-l-4 border-transparent";
+  };
+
+  const isReviewPage = location.pathname.includes('/admin/review');
 
   const getPageTitle = () => {
+    if (isReviewPage) return 'Review Dokumen';
     switch(location.pathname) {
       case '/dashboard': return 'Riwayat Saya';
       case '/form-wi': return 'Work Instruction';
+      case '/qm': return 'Quality Manual';
+      case '/sop': return 'Standard Operating Procedure';
+      case '/fm-fr': return 'Forms & Records';
       case '/others': return 'Others';
       case '/admin': return 'Dashboard ISO';
       default: return 'E-Form ISO';
@@ -72,7 +90,7 @@ export default function MainLayout() {
                 <Link to="/sop" className={`flex items-center gap-3 py-2.5 text-sm ${isActive('/sop')}`}>
                   <GitBranch size={18} strokeWidth={2.5} /> SOP
                 </Link>
-                <Link to="/form-wi" className={`flex items-center gap-3 py-2.5 text-sm ${isActive('/wi')}`}>
+                <Link to="/form-wi" className={`flex items-center gap-3 py-2.5 text-sm ${isActive('/form-wi')}`}>
                   <ClipboardCheck size={18} strokeWidth={2.5} /> WI
                 </Link>
                 <Link to="/fm-fr" className={`flex items-center gap-3 py-2.5 text-sm ${isActive('/fm-fr')}`}>
@@ -121,12 +139,31 @@ export default function MainLayout() {
             <span className="cursor-pointer hover:text-teal-900 flex items-center gap-1">
               ISOTeam <ChevronDown size={16} strokeWidth={3} />
             </span>
-            <span className="cursor-pointer hover:text-teal-900 flex items-center gap-1">
-              Help <ChevronDown size={16} strokeWidth={3} />
-            </span>
-            <button onClick={handleLogout} className="cursor-pointer text-red-600 hover:text-red-800 flex items-center gap-1 ml-4 border-l border-gray-200 pl-6">
-              <LogOut size={16} strokeWidth={3} /> Logout
-            </button>
+            
+            {/* Tombol Logout dengan Logika Disable & Tooltip Custom Figma */}
+            <div className="relative group flex items-center ml-4 border-l border-gray-200 pl-6 h-full">
+              <button 
+                onClick={handleLogout} 
+                disabled={isReviewPage}
+                className={`flex items-center gap-1 transition-colors ${
+                  isReviewPage 
+                    ? 'text-red-300 cursor-not-allowed' // Tampilan saat didisable
+                    : 'text-red-600 hover:text-red-800 cursor-pointer'
+                }`}
+              >
+                <LogOut size={16} strokeWidth={3} /> Logout
+              </button>
+
+              {/* Tooltip Melayang (Hanya Muncul jika Disabled) */}
+              {isReviewPage && (
+                <div className="absolute top-full right-0 mt-3 hidden group-hover:block w-max bg-white text-gray-600 text-xs font-medium py-2 px-3 rounded-lg shadow-[0_4px_12px_rgba(0,0,0,0.15)] border border-gray-100 z-50">
+                  Selesaikan atau Batalkan Review terlebih dahulu untuk keluar.
+                  {/* Segitiga panah ke atas */}
+                  <div className="absolute -top-1.5 right-6 border-4 border-transparent border-b-white drop-shadow-sm"></div>
+                </div>
+              )}
+            </div>
+
           </div>
         </header>
 

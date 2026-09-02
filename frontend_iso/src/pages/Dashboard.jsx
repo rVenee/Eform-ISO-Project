@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { Search, ClipboardCheck, GitBranch, ChevronDown, Download, Eye, Plus, Pencil, LayoutGrid, FileText, Folder } from 'lucide-react';
+import { Search, ClipboardCheck, GitBranch, ChevronDown, Download, Eye, Plus, Pencil, LayoutGrid, FileText, Folder, Trash2 } from 'lucide-react';
 import apiClient from '../api/axios';
 
 export default function Dashboard() {
@@ -56,7 +56,6 @@ export default function Dashboard() {
       case 'disetujui': return 'bg-[#d1fae5] text-[#065f46]';
       case 'menunggu': return 'bg-[#fef3c7] text-[#92400e]';
       case 'direvisi': return 'bg-[#fee2e2] text-[#b91c1c]';
-      case 'diproses': 
       case 'direview': return 'bg-[#dbeafe] text-[#1e40af]';
       case 'draft': return 'bg-gray-100 text-gray-600 border border-gray-200';
       default: return 'bg-gray-100 text-gray-600';
@@ -71,6 +70,18 @@ export default function Dashboard() {
       case 'QM': return <FileText size={18} className="text-[#126863]" />;
       case 'FM_FR': return <Folder size={18} className="text-[#126863]" />;
       default: return <LayoutGrid size={18} className="text-[#126863]" />; 
+    }
+  };
+
+  const handleDelete = async (docId) => {
+    const confirmDelete = window.confirm("Apakah Anda yakin ingin menghapus dokumen ini secara permanen?");
+    if (!confirmDelete) return;
+
+    try {
+      await apiClient.delete(`/documents/${docId}`);
+      setDocuments(prevDocs => prevDocs.filter(doc => doc.document_id !== docId));
+    } catch (error) {
+      alert("Gagal menghapus dokumen. Pastikan server merespons dengan benar.");
     }
   };
 
@@ -227,7 +238,11 @@ export default function Dashboard() {
                       {doc.title}
                     </div>
                   </td>
-                  <td className="px-5 py-4">{doc.document_number || '-'}</td>
+                  <td className="px-5 py-4 align-middle">
+                    <div className="max-w-[150px] mx-auto whitespace-normal break-words text-center">
+                      {doc.document_number || '-'}
+                    </div>
+                  </td>
                   <td className="px-5 py-4 align-middle">
                     <div className="flex justify-center">
                       <span className={`px-4 py-1.5 rounded-full text-xs font-bold w-24 inline-block text-center shadow-sm ${getStatusStyle(doc.status)}`}>
@@ -257,7 +272,17 @@ export default function Dashboard() {
                         <button className="text-red-500 hover:text-red-700 transition-colors p-1" title="Unduh PDF">
                           <Download size={22} strokeWidth={2.5} />
                         </button>
-                      ) : null} 
+                      ) : null}
+
+                      {(doc.status?.toLowerCase() === 'draft' || doc.status?.toLowerCase() === 'menunggu') && (
+                        <button 
+                          onClick={() => handleDelete(doc.document_id)} 
+                          className="text-red-500 hover:text-red-700 transition-colors p-1" 
+                          title="Hapus Dokumen"
+                        >
+                          <Trash2 size={22} strokeWidth={2.5} />
+                        </button>
+                      )} 
 
                     </div>
                   </td>

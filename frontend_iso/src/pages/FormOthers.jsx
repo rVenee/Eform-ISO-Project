@@ -12,17 +12,10 @@ export default function FormOthers() {
   const [showConfirm, setShowConfirm] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
 
-  // State Form Others
+  // State Form Others (Dirampingkan)
   const [formData, setFormData] = useState({
-    document_no: '',
-    document_date: '',
-    section: '',
-    author: '',
-    type_form_iso: '',
+    title: '',
     type_iso_doc: '',
-    approver: '',
-    last_approver: '',
-    initiator: '',
     file: null,
     fileName: ''
   });
@@ -37,15 +30,8 @@ export default function FormOthers() {
           
           if (isi_form) {
             setFormData({
-              document_no: metadata.document_number || '',
-              document_date: metadata.effective_date || '',
-              section: isi_form.section || '',
-              author: metadata.creator_name || '',
-              type_form_iso: isi_form.type_form_iso || '',
-              type_iso_doc: metadata.category || '', // Ambil dari category NCR/DOP/dll
-              approver: metadata.approved_by || '',
-              last_approver: isi_form.last_approver || '',
-              initiator: isi_form.initiator || '',
+              title: metadata.title || '',
+              type_iso_doc: metadata.category || '', 
               file: null, 
               fileName: isi_form.fileName || '' 
             });
@@ -86,10 +72,23 @@ export default function FormOthers() {
   };
 
   const processFile = (file) => {
+    const validExtensions = ['doc', 'docx'];
+    const fileExtension = file.name.split('.').pop().toLowerCase();
+    const validMimeTypes = [
+      'application/msword', 
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+    ];
+
+    if (!validExtensions.includes(fileExtension) && !validMimeTypes.includes(file.type)) {
+      alert("Format file ditolak! Harap unggah dokumen dalam format Word (.doc atau .docx).");
+      return;
+    }
+
     if (file.size > 10 * 1024 * 1024) {
       alert("Ukuran file melebihi batas maksimal 10MB.");
       return;
     }
+    
     setFormData(prev => ({ ...prev, file: file, fileName: file.name }));
   };
 
@@ -102,14 +101,14 @@ export default function FormOthers() {
     let currentDocId = id;
 
     try {
-      // TAHAP 1: Metadata Utama (Kategori dinamis & Tidak ada draft)
+      // TAHAP 1: Metadata Utama
       const metadataPayload = {
         category: formData.type_iso_doc, 
-        title: `Dokumen ${formData.type_iso_doc}`, 
-        document_number: formData.document_no,
-        creator_name: formData.author,
-        approved_by: formData.approver,
-        effective_date: formData.document_date || null,
+        title: formData.title || `Dokumen ${formData.type_iso_doc}`, 
+        document_number: "",
+        creator_name: "",
+        approved_by: "",
+        effective_date: null,
         status: 'Menunggu'
       };
 
@@ -122,10 +121,6 @@ export default function FormOthers() {
 
       // TAHAP 2: Simpan Sisa Form ke JSON
       const jsonPayload = {
-        section: formData.section,
-        type_form_iso: formData.type_form_iso,
-        last_approver: formData.last_approver,
-        initiator: formData.initiator,
         fileName: formData.fileName
       };
 
@@ -133,7 +128,7 @@ export default function FormOthers() {
         form_data: jsonPayload
       });
 
-      // TAHAP 3: Upload File Fisik (Hanya jika ada file baru)
+      // TAHAP 3: Upload File Fisik
       if (formData.file) {
         const fileData = new FormData();
         fileData.append('subchapter_reference', 'Attachment_Utama_Others');
@@ -183,29 +178,7 @@ export default function FormOthers() {
               <h2 className="text-[22px] font-bold text-[#126863] leading-none mb-1">Informasi Umum</h2>
               <p className="text-sm text-gray-400 mb-8">Informasi mengenai dokumen</p>
               
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                <div>
-                  <label className="block text-sm font-bold text-gray-600 mb-2">Document No. <span className="text-red-500">*</span></label>
-                  <input type="text" value={formData.document_no} onChange={(e) => handleChange('document_no', e.target.value)} placeholder="Placeholder" className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-[#126863]" required />
-                </div>
-                <div>
-                  <label className="block text-sm font-bold text-gray-600 mb-2">Document Date <span className="text-red-500">*</span></label>
-                  <input type="date" value={formData.document_date} onChange={(e) => handleChange('document_date', e.target.value)} className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-[#126863] text-gray-500" required />
-                </div>
-                <div>
-                  <label className="block text-sm font-bold text-gray-600 mb-2">Section <span className="text-red-500">*</span></label>
-                  <input type="text" value={formData.section} onChange={(e) => handleChange('section', e.target.value)} placeholder="Placeholder" className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-[#126863]" required />
-                </div>
-                <div>
-                  <label className="block text-sm font-bold text-gray-600 mb-2">Author <span className="text-red-500">*</span></label>
-                  <input type="text" value={formData.author} onChange={(e) => handleChange('author', e.target.value)} placeholder="Placeholder" className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-[#126863]" required />
-                </div>
-                <div>
-                  <label className="block text-sm font-bold text-gray-600 mb-2">Type Form ISO <span className="text-red-500">*</span></label>
-                  <input type="text" value={formData.type_form_iso} onChange={(e) => handleChange('type_form_iso', e.target.value)} placeholder="Placeholder" className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-[#126863]" required />
-                </div>
-                
-                {/* Dropdown Type ISO Doc */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
                   <label className="block text-sm font-bold text-gray-600 mb-2">Type ISO Doc. <span className="text-red-500">*</span></label>
                   <select 
@@ -221,18 +194,16 @@ export default function FormOthers() {
                     <option value="TM">TM</option>
                   </select>
                 </div>
-
                 <div>
-                  <label className="block text-sm font-bold text-gray-600 mb-2">Approver <span className="text-red-500">*</span></label>
-                  <input type="text" value={formData.approver} onChange={(e) => handleChange('approver', e.target.value)} placeholder="Placeholder" className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-[#126863]" required />
-                </div>
-                <div>
-                  <label className="block text-sm font-bold text-gray-600 mb-2">Last Approver <span className="text-red-500">*</span></label>
-                  <input type="text" value={formData.last_approver} onChange={(e) => handleChange('last_approver', e.target.value)} placeholder="Placeholder" className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-[#126863]" required />
-                </div>
-                <div>
-                  <label className="block text-sm font-bold text-gray-600 mb-2">Initiator <span className="text-red-500">*</span></label>
-                  <input type="text" value={formData.initiator} onChange={(e) => handleChange('initiator', e.target.value)} placeholder="Placeholder" className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-[#126863]" required />
+                  <label className="block text-sm font-bold text-gray-600 mb-2">Judul Dokumen <span className="text-red-500">*</span></label>
+                  <input 
+                    type="text" 
+                    value={formData.title} 
+                    onChange={(e) => handleChange('title', e.target.value)} 
+                    placeholder="Masukkan judul spesifik dokumen..." 
+                    className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-[#126863]" 
+                    required 
+                  />
                 </div>
               </div>
             </div>
@@ -247,7 +218,7 @@ export default function FormOthers() {
             </div>
             <div className="flex-1 w-full">
               <h2 className="text-[22px] font-bold text-[#126863] leading-none mb-1">Upload Dokumen (Attachment)</h2>
-              <p className="text-sm text-gray-400 mb-6">Unggah file dokumen ISO dalam format PDF atau Word</p>
+              <p className="text-sm text-gray-400 mb-6">Unggah file dokumen ISO dalam format Word (.doc, .docx)</p>
 
               {!formData.fileName ? (
                 <label 
@@ -261,7 +232,7 @@ export default function FormOthers() {
                     <p className="mb-2 text-sm font-bold text-gray-700">Klik untuk mengunggah atau seret file ke sini</p>
                     <p className="text-xs text-gray-500">Maksimal ukuran file 10MB</p>
                   </div>
-                  <input type="file" className="hidden" onChange={handleFileInput} accept=".pdf,.doc,.docx" />
+                  <input type="file" className="hidden" onChange={handleFileInput} accept=".doc,.docx,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" />
                 </label>
               ) : (
                 <div className="flex items-center justify-between p-5 bg-white border border-gray-200 rounded-2xl shadow-sm">
@@ -282,7 +253,6 @@ export default function FormOthers() {
             </div>
           </div>
 
-          {/* Footer Actions - Draft Dihapus */}
           <div className="flex justify-end gap-4 mt-16 pt-8 border-t border-gray-200">
             <button 
               type="button"

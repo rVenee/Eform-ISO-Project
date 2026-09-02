@@ -63,6 +63,8 @@ class DocumentResponse(DocumentBase):
     user_id: int
     created_date: datetime
     updated_date: datetime
+    locked_by: Optional[int] = None
+    locked_by_name: Optional[str] = None
 
     class Config:
         from_attributes = True

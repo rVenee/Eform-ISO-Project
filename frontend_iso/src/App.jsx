@@ -4,12 +4,23 @@ import MainLayout from './layouts/MainLayout';
 import Dashboard from './pages/Dashboard';
 import FormWI from './pages/FormWI';
 import FormOthers from './pages/FormOthers';
+import AdminDashboard from './pages/AdminDashboard';
+import ReviewDokumen from './pages/ReviewDokumen';
+import FormQM from './pages/FormQM';
+import FormSOP from './pages/FormSOP';
+import FormFM from './pages/FormFM';
 
+// Cek apakah user sudah login
 const ProtectedRoute = ({ children }) => {
   const token = localStorage.getItem('token');
-  if (!token) {
-    return <Navigate to="/" replace />;
-  }
+  if (!token) return <Navigate to="/" replace />;
+  return children;
+};
+
+// Cek apakah user adalah Admin ISO
+const AdminRoute = ({ children }) => {
+  const role = localStorage.getItem('role');
+  if (role !== 'admin_iso') return <Navigate to="/dashboard" replace />;
   return children;
 };
 
@@ -20,12 +31,26 @@ function App() {
         <Route path="/" element={<Login />} />
         
         <Route element={<ProtectedRoute><MainLayout /></ProtectedRoute>}>
+          {/* Rute User Biasa */}
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/form-wi" element={<FormWI />} />
+          <Route path="/qm" element={<FormQM />} />
+          <Route path="/sop" element={<FormSOP />} />
+          <Route path="/fm-fr" element={<FormFM />} />
           <Route path="/wi/:id" element={<FormWI />} />
           <Route path="/others" element={<FormOthers />} />
           <Route path="/others/:id" element={<FormOthers />} />
-          <Route path="/admin" element={<div className="bg-white p-8 rounded-xl shadow-sm border border-gray-200 text-gray-600 font-medium">Ini adalah area Dashboard Admin Unit ISO.</div>} />
+          
+          {/* Rute Khusus Admin (Dilindungi AdminRoute) */}
+          <Route path="/admin" element={
+            <AdminRoute>
+              <AdminDashboard />
+            </AdminRoute>
+          } />
+          <Route path="/admin/review/:id" element={
+            <AdminRoute>
+              <ReviewDokumen />
+            </AdminRoute>} />
         </Route>
       </Routes>
     </Router>

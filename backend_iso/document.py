@@ -12,6 +12,7 @@ import models, schemas
 from auth import get_current_user
 import os
 import shutil
+import pythoncom
 
 # Inisialisasi router untuk dokumen
 router = APIRouter(prefix="/documents", tags=["Documents"])
@@ -26,7 +27,7 @@ def create_document(
     new_document = models.Document(
         category=doc.category,
         title=doc.title,
-        creator_name=doc.creator_name,
+        creator_name=doc.creator_name if doc.creator_name else current_user.full_name,
         checked_by=doc.checked_by,
         approved_by=doc.approved_by,
         document_number=doc.document_number,
@@ -54,13 +55,21 @@ def get_all_documents(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
-    # Mulai dengan mengambil semua dokumen
     query = db.query(models.Document)
     
+    # Lapis Keamanan RBAC: Isolasi Data
+    if current_user.role != schemas.RoleEnum.admin_iso:
+        # Jika user biasa, HANYA ambil dokumen miliknya
+        query = query.filter(models.Document.user_id == current_user.user_id)
+    else:
+        # Jika Admin ISO, ambil semua KECUALI yang masih Draft (belum disubmit user)
+        query = query.filter(models.Document.status != 'Draft')
+        
     # Filter kategori (contoh: 'WI', 'SOP')
     if category:
         query = query.filter(models.Document.category == category)
         
+    # ... (Sisa filter status, search, date, dan order_by tetap sama persis seperti kode Anda) ...
     # Filter status (contoh: 'Disetujui', 'Direvisi')
     if status:
         query = query.filter(models.Document.status == status)
@@ -341,7 +350,14 @@ def export_document_pdf(
     # 7. Konversi ke PDF
     final_pdf_name = f"doc_{document_id}_final.pdf"
     final_pdf_path = f"uploads/{final_pdf_name}"
-    convert(temp_docx_path, final_pdf_path)
+    
+    try:
+        # Wajib dipanggil untuk mengaktifkan MS Word di thread FastAPI
+        pythoncom.CoInitialize()
+        convert(temp_docx_path, final_pdf_path)
+    finally:
+        # Wajib dilepas agar tidak membebani memori server
+        pythoncom.CoUninitialize()
 
     # 8. Bersihkan file .docx sementara
     if os.path.exists(temp_docx_path):
@@ -353,3 +369,52 @@ def export_document_pdf(
         filename=final_pdf_name, 
         media_type='application/pdf'
     )
+
+# 11. Endpoint untuk Mengunci Dokumen (Lock) saat diklik "Review"
+@router.put("/{document_id}/lock", response_model=schemas.DocumentResponse)
+def lock_document(
+    document_id: int, 
+    db: Session = Depends(get_db), 
+    current_user: models.User = Depends(get_current_user)
+):
+    document = db.query(models.Document).filter(
+        models.Document.document_id == document_id
+    ).with_for_update().first()
+    
+    if not document:
+        raise HTTPException(status_code=404, detail="Dokumen tidak ditemukan")
+
+    # Jika lolos masuk tetapi ternyata dokumen baru saja dikunci admin lain sepersekian detik yang lalu
+    if document.status == "Direview" and document.locked_by and document.locked_by != current_user.user_id:
+        raise HTTPException(status_code=400, detail="Gagal! Dokumen baru saja diambil oleh admin lain.")
+
+    # Kunci dokumen untuk admin yang menekan tombol
+    document.status = "Direview"
+    document.locked_by = current_user.user_id
+    db.commit()
+    db.refresh(document)
+    
+    return document
+
+# 12. Endpoint untuk Membuka Kunci Dokumen (Unlock) saat "Batalkan Review"
+@router.put("/{document_id}/unlock", response_model=schemas.DocumentResponse)
+def unlock_document(
+    document_id: int, 
+    db: Session = Depends(get_db), 
+    current_user: models.User = Depends(get_current_user)
+):
+    document = db.query(models.Document).filter(models.Document.document_id == document_id).first()
+    
+    if not document:
+        raise HTTPException(status_code=404, detail="Dokumen tidak ditemukan")
+
+    # PERBAIKAN KRUSIAL: HANYA pemegang kunci yang berhak melepas kunci!
+    if document.locked_by == current_user.user_id:
+        if document.status == "Direview":
+            document.status = "Menunggu"
+            
+        document.locked_by = None
+        db.commit()
+        db.refresh(document)
+        
+    return document

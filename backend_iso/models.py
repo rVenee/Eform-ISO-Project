@@ -13,7 +13,7 @@ class User(Base):
     role = Column(Enum('admin_iso', 'user'), nullable=False)
 
     # Menghubungkan User dengan dokumen dan log revisinya
-    documents = relationship("Document", back_populates="owner", cascade="all, delete-orphan")
+    documents = relationship("Document", back_populates="owner", foreign_keys="[Document.user_id]")
     revisions = relationship("RevisionLog", back_populates="reviewer", cascade="all, delete-orphan")
 
 class Document(Base):
@@ -24,12 +24,13 @@ class Document(Base):
     creator_name = Column(String(100), nullable=True)
     checked_by = Column(String(100), nullable=True)
     approved_by = Column(String(100), nullable=True)
-    category = Column(Enum('WI', 'SOP', 'QM', 'FM_FR', 'Others'), nullable=False)
+    category = Column(Enum('WI', 'SOP', 'QM', 'FM_FR', 'NCR', 'DOP', 'JB', 'TM'), nullable=False)
     title = Column(String(255), nullable=False)
     document_number = Column(String(100), nullable=True)
     revision_number = Column(String(50), nullable=True)
     effective_date = Column(Date, nullable=True)
     status = Column(Enum('Draft', 'Menunggu', 'Direview', 'Disetujui', 'Direvisi'), default='Draft')
+    locked_by = Column(Integer, ForeignKey("USERS.user_id", ondelete="SET NULL"), nullable=True)
     created_date = Column(TIMESTAMP, server_default=func.now())
     updated_date = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now())
     effective_date = Column(Date, nullable=True)
@@ -38,10 +39,15 @@ class Document(Base):
     approved_date = Column(Date, nullable=True)
 
     # Relasi dua arah
-    owner = relationship("User", back_populates="documents")
+    owner = relationship("User", back_populates="documents", foreign_keys=[user_id])
+    locker = relationship("User", foreign_keys=[locked_by])
     contents = relationship("DocumentContent", back_populates="document", cascade="all, delete-orphan")
     attachments = relationship("DocumentAttachment", back_populates="document", cascade="all, delete-orphan")
     revisions = relationship("RevisionLog", back_populates="document", cascade="all, delete-orphan")
+
+    @property
+    def locked_by_name(self):
+        return self.locker.full_name if self.locker else None
 
 class DocumentContent(Base):
     __tablename__ = "DOCUMENTS_CONTENTS"

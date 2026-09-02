@@ -32,7 +32,7 @@ export default function Login() {
       localStorage.setItem('role', response.data.user_info.role);
       localStorage.setItem('full_name', response.data.user_info.full_name);
       
-      if (response.data.user_info.role === 'admin') {
+      if (response.data.user_info.role === 'admin_iso') {
         navigate('/admin');
       } else {
         navigate('/dashboard');

@@ -14,15 +14,20 @@ CREATE TABLE DOCUMENTS (
     creator_name VARCHAR(100) NULL, 
     checked_by VARCHAR(100) NULL,   
     approved_by VARCHAR(100) NULL,  
-    category ENUM('WI', 'SOP', 'QM', 'FM_FR', 'Others') NOT NULL,
+    category ENUM('WI', 'SOP', 'QM', 'FM_FR', 'NCR', 'DOP', 'JB', 'TM') NOT NULL,
     title VARCHAR(255) NOT NULL,
     document_number VARCHAR(100) NULL,
     revision_number VARCHAR(50) NULL,
     effective_date DATE NULL,
+    prepared_date DATE NULL,
+    checked_date DATE NULL,
+    approved_date DATE NULL,
     status ENUM('Draft', 'Menunggu', 'Direview', 'Disetujui', 'Direvisi') DEFAULT 'Draft',
+    locked_by INT NULL,
     created_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES USERS(user_id) ON DELETE CASCADE
+    FOREIGN KEY (user_id) REFERENCES USERS(user_id) ON DELETE CASCADE,
+    FOREIGN KEY (locked_by) REFERENCES USERS(user_id) ON DELETE SET NULL
 );
 
 -- 3. Tabel DOCUMENTS_CONTENTS
