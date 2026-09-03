@@ -1,4 +1,5 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import ITAdminDashboard from './pages/ITAdminDashboard';
 import Login from './pages/Login';
 import MainLayout from './layouts/MainLayout';
 import Dashboard from './pages/Dashboard';
@@ -21,6 +22,13 @@ const ProtectedRoute = ({ children }) => {
 const AdminRoute = ({ children }) => {
   const role = localStorage.getItem('role');
   if (role !== 'admin_iso') return <Navigate to="/dashboard" replace />;
+  return children;
+};
+
+// Cek apakah user adalah Admin IT
+const ITAdminRoute = ({ children }) => {
+  const role = localStorage.getItem('role');
+  if (role !== 'admin_it') return <Navigate to="/dashboard" replace />;
   return children;
 };
 
@@ -51,6 +59,13 @@ function App() {
             <AdminRoute>
               <ReviewDokumen />
             </AdminRoute>} />
+
+          {/* Rute Khusus Admin IT (Dilindungi ITAdminRoute) */}
+          <Route path="/it-admin" element={
+            <ITAdminRoute>
+              <ITAdminDashboard />
+            </ITAdminRoute>
+          } />
         </Route>
       </Routes>
     </Router>

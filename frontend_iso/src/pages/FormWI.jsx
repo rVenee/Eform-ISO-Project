@@ -144,6 +144,44 @@ export default function FormWI() {
     }
   };
 
+  // --- VALIDASI PRE-SUBMIT ---
+  const handlePreSubmit = () => {
+    // Validasi Field Teks Dasar
+    if (!formData.judul.trim() || !formData.tujuan.trim() || !formData.ruang_lingkup.trim()) {
+      alert("⚠️ Harap lengkapi field wajib: Judul, Tujuan, dan Ruang Lingkup.");
+      return;
+    }
+
+    // Validasi Langkah Kerja (Minimal 1 terisi)
+    const hasLangkahKerja = formData.langkah_kerja.some(l => l.deskripsi.trim() !== '');
+    if (!hasLangkahKerja) {
+      alert("⚠️ Harap isi setidaknya satu Langkah Kerja Utama.");
+      return;
+    }
+
+    // Validasi Kesehatan & Keselamatan Kerja (Minimal 1 terisi)
+    const hasKesehatan = formData.kesehatan_kerja.some(k => k.deskripsi.trim() !== '');
+    const hasKeselamatan = formData.keselamatan_kerja.some(k => k.deskripsi.trim() !== '');
+    
+    if (!hasKesehatan) {
+      alert("⚠️ Harap isi setidaknya satu poin Kesehatan Kerja.");
+      return;
+    }
+    if (!hasKeselamatan) {
+      alert("⚠️ Harap isi setidaknya satu poin Keselamatan Kerja.");
+      return;
+    }
+
+    const hasDokumenTerkait = formData.dokumen_terkait.some(d => d.nomor.trim() !== '' && d.deskripsi.trim() !== '');
+    if (!hasDokumenTerkait) {
+      alert("⚠️ Harap isi setidaknya satu Dokumen Terkait (Nomor dan Deskripsi).");
+      return;
+    }
+
+    // Jika semua validasi lolos, munculkan modal konfirmasi
+    setShowConfirm(true);
+  };
+
   // --- SUBMIT HANDLER ---
   const handleSubmit = async (e, isDraft = false) => {
     if (e) e.preventDefault();
@@ -268,7 +306,7 @@ export default function FormWI() {
             <div className="w-10 h-10 rounded-full bg-[#f0f7f7] text-[#126863] flex items-center justify-center font-bold text-lg shrink-0 mt-1">1</div>
             <div className="flex-1">
               <h2 className="text-[22px] font-bold text-[#126863] leading-none mb-1">Tujuan</h2>
-              <p className="text-sm text-gray-400 mb-6">Jelaskan tujuan dari instruksi kerja ini, boleh lebih dari satu poin</p>
+              <p className="text-sm text-gray-400 mb-6">Jelaskan tujuan dari instruksi kerja ini.</p>
               <textarea 
                 rows="3"
                 value={formData.tujuan}
@@ -429,7 +467,7 @@ export default function FormWI() {
             <div className="w-10 h-10 rounded-full bg-[#f0f7f7] text-[#126863] flex items-center justify-center font-bold text-lg shrink-0 mt-1">5</div>
             <div className="flex-1">
               <h2 className="text-[22px] font-bold text-[#126863] leading-none mb-1">Dokumen Terkait</h2>
-              <p className="text-sm text-gray-400 mb-8">Cantumkan dokumen terkait jika ada</p>
+              <p className="text-sm text-gray-400 mb-8">Cantumkan dokumen terkait</p>
               
               <div className="space-y-4">
                 {formData.dokumen_terkait.map((doc, index) => (
@@ -519,7 +557,7 @@ export default function FormWI() {
             </button>
             <button 
               type="button"
-              onClick={() => setShowConfirm(true)}
+              onClick={handlePreSubmit} 
               disabled={isLoading}
               className="flex items-center gap-2 px-6 py-3.5 bg-[#126863] text-white rounded-xl font-bold text-sm hover:bg-[#0d4f4c] shadow-sm transition-colors disabled:opacity-70"
             >

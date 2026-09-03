@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { Search, ClipboardCheck, GitBranch, ChevronDown, Download, Eye, Plus, Pencil, LayoutGrid, FileText, Folder, Trash2 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Search, ClipboardCheck, GitBranch, ChevronDown, Download, Eye, Plus, Pencil, LayoutGrid, FileText, Folder, Trash2, X, Lightbulb, Loader2 } from 'lucide-react';
 import apiClient from '../api/axios';
 
 export default function Dashboard() {
@@ -15,10 +16,26 @@ export default function Dashboard() {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
 
-  // Auto-fetch dengan Debounce
+  // State untuk Preview Dokumen
+  const [pdfUrl, setPdfUrl] = useState('');
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  const [isLoadingPreview, setIsLoadingPreview] = useState(false);
+
+  const navigate = useNavigate();
+
+  // State untuk Modal Catatan Revisi
+  const [isRevisionModalOpen, setIsRevisionModalOpen] = useState(false);
+  const [selectedRevisionDoc, setSelectedRevisionDoc] = useState(null);
+  const [revisionNotes, setRevisionNotes] = useState(null);
+  const [isLoadingRevision, setIsLoadingRevision] = useState(false);
+
+  // State untuk melacak ID dokumen yang sedang diunduh
+  const [downloadingId, setDownloadingId] = useState(null);
+
+  // Auto-fetch dengan Debounce & Background Polling (5 Detik)
   useEffect(() => {
-    const fetchFilteredDocuments = async () => {
-      setIsLoading(true);
+    const fetchFilteredDocuments = async (isBackground = false) => {
+      if (!isBackground) setIsLoading(true); // Hanya munculkan loading jika bukan dari polling
       try {
         const params = {};
         if (searchQuery) params.search = searchQuery;
@@ -32,15 +49,25 @@ export default function Dashboard() {
       } catch (err) {
         setError('Gagal memuat data riwayat dokumen.');
       } finally {
-        setIsLoading(false);
+        if (!isBackground) setIsLoading(false);
       }
     };
 
+    // 1. Eksekusi awal / saat filter berubah (menggunakan debounce 500ms)
     const delayDebounceFn = setTimeout(() => {
-      fetchFilteredDocuments();
+      fetchFilteredDocuments(false);
     }, 500);
 
-    return () => clearTimeout(delayDebounceFn);
+    // 2. Eksekusi polling latar belakang (setiap 5000ms / 5 detik)
+    const pollingInterval = setInterval(() => {
+      fetchFilteredDocuments(true); // true = abaikan animasi loading
+    }, 5000);
+
+    // 3. Bersihkan memori saat komponen di-unmount atau filter berubah
+    return () => {
+      clearTimeout(delayDebounceFn);
+      clearInterval(pollingInterval);
+    };
   }, [searchQuery, category, statusFilter, startDate, endDate]);
 
   const handleResetFilters = () => {
@@ -83,6 +110,86 @@ export default function Dashboard() {
     } catch (error) {
       alert("Gagal menghapus dokumen. Pastikan server merespons dengan benar.");
     }
+  };
+
+  const handlePreview = async (docId) => {
+    setIsPreviewOpen(true);
+    setIsLoadingPreview(true);
+    try {
+      const res = await apiClient.get(`/documents/${docId}/export`, { responseType: 'blob' });
+      const url = URL.createObjectURL(res.data);
+      setPdfUrl(url);
+    } catch (error) {
+      alert("Gagal memuat pratinjau dokumen. Pastikan file terlampir dengan benar.");
+      setIsPreviewOpen(false);
+    } finally {
+      setIsLoadingPreview(false);
+    }
+  };
+
+  const closePreview = () => {
+    if (pdfUrl) URL.revokeObjectURL(pdfUrl);
+    setPdfUrl('');
+    setIsPreviewOpen(false);
+  };
+
+  const handleDownload = async (doc) => {
+    setDownloadingId(doc.document_id); // Aktifkan loading untuk ID ini
+    
+    try {
+      const res = await apiClient.get(`/documents/${doc.document_id}/export`, { responseType: 'blob' });
+      const url = window.URL.createObjectURL(new Blob([res.data]));
+      
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `${doc.title || 'Dokumen_ISO'}.pdf`);
+      
+      document.body.appendChild(link);
+      link.click();
+      
+      link.parentNode.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      alert("Gagal mengunduh dokumen. Pastikan server merespons dengan benar.");
+    } finally {
+      setDownloadingId(null); // Matikan loading
+    }
+  };
+
+  // Handler saat tombol Edit (Pencil) diklik
+  const handleEditClick = async (doc) => {
+    if (doc.status?.toLowerCase() === 'draft') {
+      // Jika Draft, langsung arahkan ke halaman edit
+      const path = ['NCR', 'DOP', 'JB', 'TM'].includes(doc.category?.toUpperCase()) ? `/others/${doc.document_id}` : `/wi/${doc.document_id}`;
+      navigate(path);
+    } else if (doc.status?.toLowerCase() === 'direvisi') {
+      // Jika Direvisi, buka modal dan tarik catatan revisi dari backend
+      setSelectedRevisionDoc(doc);
+      setIsRevisionModalOpen(true);
+      setIsLoadingRevision(true);
+      try {
+        const res = await apiClient.get(`/documents/${doc.document_id}/revisions`);
+        if (res.data && res.data.length > 0) {
+          // Ambil log revisi yang paling baru (indeks 0)
+          setRevisionNotes(res.data[0]);
+        } else {
+          setRevisionNotes({ notes: "Tidak ada catatan revisi spesifik.", date_create: doc.updated_date });
+        }
+      } catch (error) {
+        setRevisionNotes({ notes: "Gagal memuat catatan revisi.", date_create: new Date() });
+      } finally {
+        setIsLoadingRevision(false);
+      }
+    }
+  };
+
+  // Handler untuk melanjutkan ke halaman form setelah membaca catatan
+  const handleProceedToEdit = () => {
+    if (!selectedRevisionDoc) return;
+    const path = ['NCR', 'DOP', 'JB', 'TM'].includes(selectedRevisionDoc.category?.toUpperCase()) 
+      ? `/others/${selectedRevisionDoc.document_id}` 
+      : `/wi/${selectedRevisionDoc.document_id}`;
+    navigate(path);
   };
 
   return (
@@ -254,36 +361,61 @@ export default function Dashboard() {
                     {doc.updated_date ? new Date(doc.updated_date).toLocaleDateString('id-ID') : 'Hari ini'}
                   </td>
                   <td className="px-5 py-4 align-middle">
-                    <div className="flex items-center justify-center gap-4">
+                    <div className="flex items-center justify-center">
                       
-                      <button className="text-yellow-600 hover:text-yellow-700 transition-colors p-1" title="Lihat Pratinjau">
-                        <Eye size={22} strokeWidth={2.5} />
-                      </button>
-
-                      {(doc.status?.toLowerCase() === 'direvisi' || doc.status?.toLowerCase() === 'draft') ? (
-                        <Link 
-                          to={['NCR', 'DOP', 'JB', 'TM'].includes(doc.category?.toUpperCase()) ? `/others/${doc.document_id}` : `/wi/${doc.document_id}`} 
-                          className="text-[#126863] hover:text-[#0d4f4c] transition-colors p-1" 
-                          title="Perbarui Dokumen"
-                        >
-                          <Pencil size={22} strokeWidth={2.5} />
-                        </Link>
-                      ) : doc.status?.toLowerCase() === 'disetujui' ? (
-                        <button className="text-red-500 hover:text-red-700 transition-colors p-1" title="Unduh PDF">
-                          <Download size={22} strokeWidth={2.5} />
-                        </button>
-                      ) : null}
-
-                      {(doc.status?.toLowerCase() === 'draft' || doc.status?.toLowerCase() === 'menunggu') && (
+                      {/* Container Pil Pembungkus Aksi */}
+                      <div className="flex items-center gap-1 bg-gray-50 p-1.5 rounded-xl border border-gray-100 shadow-sm transition-all hover:bg-white hover:shadow">
+                        
                         <button 
-                          onClick={() => handleDelete(doc.document_id)} 
-                          className="text-red-500 hover:text-red-700 transition-colors p-1" 
-                          title="Hapus Dokumen"
+                          onClick={() => handlePreview(doc.document_id)}
+                          className="text-gray-500 hover:text-[#126863] hover:bg-teal-50 p-1.5 rounded-lg transition-colors" 
+                          title="Lihat Pratinjau"
                         >
-                          <Trash2 size={22} strokeWidth={2.5} />
+                          <Eye size={18} strokeWidth={2.5} />
                         </button>
-                      )} 
 
+                        {(doc.status?.toLowerCase() === 'direvisi' || doc.status?.toLowerCase() === 'draft') ? (
+                          <button 
+                            onClick={() => handleEditClick(doc)}
+                            className="text-gray-500 hover:text-blue-600 hover:bg-blue-50 p-1.5 rounded-lg transition-colors" 
+                            title="Edit / Lihat Catatan Revisi"
+                          >
+                            <Pencil size={18} strokeWidth={2.5} />
+                          </button>
+                        ) : doc.status?.toLowerCase() === 'disetujui' ? (
+                          <button 
+                            onClick={() => handleDownload(doc)}
+                            disabled={downloadingId === doc.document_id}
+                            className={`p-1.5 rounded-lg transition-colors ${
+                              downloadingId === doc.document_id 
+                                ? 'text-green-600 bg-green-50 opacity-70 cursor-not-allowed' 
+                                : 'text-gray-500 hover:text-green-600 hover:bg-green-50'
+                            }`}
+                            title={downloadingId === doc.document_id ? "Sedang Mengunduh..." : "Unduh Dokumen Final"}
+                          >
+                            {downloadingId === doc.document_id ? (
+                              <Loader2 size={18} className="animate-spin" strokeWidth={2.5} />
+                            ) : (
+                              <Download size={18} strokeWidth={2.5} />
+                            )}
+                          </button>
+                        ) : null}
+
+                        {(doc.status?.toLowerCase() === 'draft' || doc.status?.toLowerCase() === 'menunggu') && (
+                          <>
+                            <div className="w-[1px] h-4 bg-gray-200 mx-1"></div> {/* Garis pemisah */}
+                            <button 
+                              onClick={() => handleDelete(doc.document_id)}
+                              className="text-gray-500 hover:text-red-600 hover:bg-red-50 p-1.5 rounded-lg transition-colors" 
+                              title="Hapus Dokumen"
+                            >
+                              <Trash2 size={18} strokeWidth={2.5} />
+                            </button>
+                          </>
+                        )}
+
+                      </div>
+                      
                     </div>
                   </td>
                 </tr>
@@ -292,6 +424,94 @@ export default function Dashboard() {
 
           </tbody>
         </table>
+        {/* =========================================
+                       Modal Preview PDF
+        ========================================= */}
+        {isPreviewOpen && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm px-4 py-8">
+            <div className="bg-white w-full max-w-5xl h-full rounded-2xl shadow-2xl flex flex-col overflow-hidden relative">
+              
+              {/* Header Modal */}
+              <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 bg-gray-50">
+                <h3 className="text-lg font-bold text-[#126863]">Pratinjau Dokumen</h3>
+                <button onClick={closePreview} className="text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg p-1.5 transition-colors">
+                  <X size={24} strokeWidth={2.5} />
+                </button>
+              </div>
+
+              {/* Body Modal (Iframe PDF) */}
+              <div className="flex-1 bg-gray-200 p-2 md:p-4">
+                {isLoadingPreview ? (
+                  <div className="w-full h-full flex flex-col items-center justify-center">
+                    <div className="w-12 h-12 border-4 border-[#126863]/20 border-t-[#126863] rounded-full animate-spin mb-4"></div>
+                    <p className="text-[#126863] font-medium animate-pulse">Menyiapkan PDF...</p>
+                  </div>
+                ) : pdfUrl ? (
+                  <iframe 
+                    src={`${pdfUrl}#toolbar=0`} 
+                    className="w-full h-full rounded-xl border border-gray-300 shadow-inner" 
+                    title="PDF Preview" 
+                  />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center text-gray-500 font-medium">
+                    Gagal memuat dokumen.
+                  </div>
+                )}
+              </div>
+
+            </div>
+          </div>
+        )}
+
+        {/* =========================================
+          Modal Catatan Revisi
+        ========================================= */}
+        {isRevisionModalOpen && selectedRevisionDoc && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/40 backdrop-blur-sm px-4 py-8">
+            <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl p-8 relative">
+              
+              <h3 className="text-[22px] font-bold text-[#126863] mb-6">Catatan Revisi Dokumen</h3>
+              
+              <div className="text-sm text-gray-700 space-y-2 mb-6 bg-gray-50 p-4 rounded-xl border border-gray-100">
+                <p><strong className="w-28 inline-block">Kategori</strong> : {selectedRevisionDoc.category}</p>
+                <p><strong className="w-28 inline-block">Judul</strong> : {selectedRevisionDoc.title}</p>
+                <p><strong className="w-28 inline-block">No. Dokumen</strong> : {selectedRevisionDoc.document_number || '-'}</p>
+                <p><strong className="w-28 inline-block">Ditinjau pada</strong> : {isLoadingRevision ? '...' : (revisionNotes?.date_create ? new Date(revisionNotes.date_create).toLocaleDateString('id-ID', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-')}</p>
+              </div>
+
+              <div className="mb-8">
+                <p className="text-sm text-gray-500 mb-2 font-medium">Pesan dari unit ISO:</p>
+                <div className="bg-red-50 border border-red-100 p-4 rounded-xl flex gap-3 min-h-[100px]">
+                  <Lightbulb size={20} className="text-red-500 shrink-0 mt-0.5" strokeWidth={2.5} />
+                  {isLoadingRevision ? (
+                    <p className="text-sm text-gray-500 animate-pulse">Memuat catatan...</p>
+                  ) : (
+                    <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">
+                      {revisionNotes?.notes}
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex justify-center gap-4">
+                <button 
+                  onClick={() => setIsRevisionModalOpen(false)} 
+                  className="flex items-center gap-2 px-6 py-2.5 text-sm font-bold text-gray-600 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors"
+                >
+                  <X size={18} strokeWidth={2.5} /> Tutup
+                </button>
+                <button 
+                  onClick={handleProceedToEdit} 
+                  disabled={isLoadingRevision}
+                  className="flex items-center gap-2 px-6 py-2.5 text-sm font-bold text-white bg-[#126863] rounded-xl hover:bg-[#0d4f4c] shadow-sm transition-colors disabled:opacity-70"
+                >
+                  <Pencil size={18} strokeWidth={2.5} /> Perbaiki Dokumen
+                </button>
+              </div>
+
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

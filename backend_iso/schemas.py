@@ -6,6 +6,7 @@ from enum import Enum
 class RoleEnum(str, Enum):
     admin_iso = "admin_iso"
     user = "user"
+    admin_it = "admin_it"
 
 # ========================================
 # SCHEMAS UNTUK AUTHENTICATION (BARU)
@@ -22,6 +23,7 @@ class Token(BaseModel):
 class UserBase(BaseModel):
     username: str
     full_name: str
+    section: Optional[str] = None
     role: RoleEnum
 
 class UserCreate(UserBase):
@@ -36,6 +38,7 @@ class UserResponse(UserBase):
 class UserUpdate(BaseModel):
     full_name: Optional[str] = None
     role: Optional[RoleEnum] = None
+    section: Optional[str] = None
     password: Optional[str] = None
 
 # ========================================

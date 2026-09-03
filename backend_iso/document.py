@@ -13,6 +13,7 @@ from auth import get_current_user
 import os
 import shutil
 import pythoncom
+import json
 
 # Inisialisasi router untuk dokumen
 router = APIRouter(prefix="/documents", tags=["Documents"])
@@ -143,16 +144,17 @@ def save_document_content(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
-    # Pastikan dokumen induknya ada
     document = db.query(models.Document).filter(models.Document.document_id == document_id).first()
     if not document:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dokumen tidak ditemukan")
 
-    # Cek apakah sudah ada isinya
     existing_content = db.query(models.DocumentContent).filter(models.DocumentContent.document_id == document_id).first()
     
     if existing_content:
-        existing_content.form_data = content.form_data
+        # BYPASS BUG SQLALCHEMY: Paksa update JSON secara eksplisit di level database
+        db.query(models.DocumentContent).filter(models.DocumentContent.document_id == document_id).update(
+            {"form_data": content.form_data}, synchronize_session=False
+        )
         db.commit()
         db.refresh(existing_content)
         return existing_content
@@ -285,85 +287,161 @@ def export_document_pdf(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
-    # 1. Ambil Data Dokumen dan Isinya
     document = db.query(models.Document).filter(models.Document.document_id == document_id).first()
-    content = db.query(models.DocumentContent).filter(models.DocumentContent.document_id == document_id).first()
-    
-    if not document or not content:
-        raise HTTPException(status_code=404, detail="Dokumen atau isi form tidak ditemukan")
+    if not document:
+        raise HTTPException(status_code=404, detail="Dokumen tidak ditemukan")
 
-    # 2. Siapkan Context Data dengan Nama Variabel yang Persis dengan Template Word
-    context = content.form_data.copy()
-    
-    # Metadata Dokumen
-    context["judul_instruksi"] = document.title if document.title else "-"
-    context["nomor_dokumen"] = document.document_number if document.document_number else "-"
-    context["nomor_revisi"] = document.revision_number if document.revision_number else "-"
-    
-    context["tanggal_efektif"] = document.effective_date.strftime("%d-%m-%Y") if document.effective_date else "-"
-    
-    # Nama Personil
-    context["disiapkan_oleh"] = document.creator_name if document.creator_name else "-"
-    context["diperiksa_oleh"] = document.checked_by if document.checked_by else "-"
-    context["disetujui_oleh"] = document.approved_by if document.approved_by else "-"
-    
-    # Tanggal Tanda Tangan
-    context["tanggal_disiapkan"] = document.prepared_date.strftime("%d-%m-%Y") if document.prepared_date else "-"
-    context["tanggal_diperiksa"] = document.checked_date.strftime("%d-%m-%Y") if document.checked_date else "-"
-    context["tanggal_disetujui"] = document.approved_date.strftime("%d-%m-%Y") if document.approved_date else "-"
-    
-    # 3. Panggil Template Word
-    template_path = "templates/template_wi.docx"
-    doc = DocxTemplate(template_path)
-    
-    # 4. Sisipkan Gambar Lampiran secara Dinamis
-    if "daftar_lampiran" in context:
-        for lampiran in context["daftar_lampiran"]:
-            ref_subbab = lampiran.get("nomor_subbab")
-            
-            # Cari lampiran fisik berdasarkan nomor subbab
-            attachment = db.query(models.DocumentAttachment).filter(
-                models.DocumentAttachment.document_id == document_id,
-                models.DocumentAttachment.subchapter_reference == ref_subbab
-            ).first()
-            
-            if attachment:
-                # Ubah URL kembali menjadi path folder lokal
-                local_image_path = attachment.file_path.split("8000/")[-1]
+    temp_docx_path = ""
+
+    if document.category == 'WI':
+        content = db.query(models.DocumentContent).filter(models.DocumentContent.document_id == document_id).first()
+        if not content:
+            raise HTTPException(status_code=404, detail="Isi form E-Form tidak ditemukan")
+
+        raw_data = content.form_data
+        if isinstance(raw_data, str):
+            try:
+                raw_context = json.loads(raw_data)
+            except:
+                raw_context = {}
+        else:
+            raw_context = raw_data.copy() if raw_data else {}
+        
+        context = {}
+        
+        # 1. MAPPING METADATA DOKUMEN
+        context["judul_instruksi"] = document.title if document.title else "-"
+        context["nomor_dokumen"] = document.document_number if document.document_number else "-"
+        context["nomor_revisi"] = document.revision_number if document.revision_number else "-"
+        context["tanggal_efektif"] = document.effective_date.strftime("%d-%m-%Y") if document.effective_date else "-"
+        
+        context["disiapkan_oleh"] = document.creator_name if document.creator_name else "-"
+        context["diperiksa_oleh"] = document.checked_by if document.checked_by else "-"
+        context["disetujui_oleh"] = document.approved_by if document.approved_by else "-"
+        
+        context["tanggal_disiapkan"] = document.prepared_date.strftime("%d-%m-%Y") if document.prepared_date else "-"
+        context["tanggal_diperiksa"] = document.checked_date.strftime("%d-%m-%Y") if document.checked_date else "-"
+        context["tanggal_disetujui"] = document.approved_date.strftime("%d-%m-%Y") if document.approved_date else "-"
+        
+        # 2. MAPPING TEXT DASAR
+        context["tujuan_instruksi"] = raw_context.get("tujuan", "-")
+        context["ruang_lingkup_instruksi"] = raw_context.get("ruang_lingkup", "-")
+
+        # 3. MAPPING LANGKAH KERJA
+        langkah_kerja_formatted = []
+        for i, langkah in enumerate(raw_context.get("langkah_kerja", [])):
+            bagian = {
+                "nomor_subbab": f"3.{i + 1}",
+                "judul_subbab": langkah.get("deskripsi", ""),
+                "daftar_poin": []
+            }
+            for j, sub in enumerate(langkah.get("sub_langkah", [])):
+                bagian["daftar_poin"].append({
+                    "nomor_poin": f"3.{i + 1}.{j + 1}",
+                    "deskripsi": sub.get("deskripsi", "")
+                })
+            langkah_kerja_formatted.append(bagian)
+        context["langkah_kerja"] = langkah_kerja_formatted
+
+        # 4. MAPPING KESEHATAN & KESELAMATAN
+        poin_kesehatan = []
+        for i, item in enumerate(raw_context.get("kesehatan_kerja", [])):
+            poin_kesehatan.append({
+                "nomor": f"4.1.{i + 1}",
+                "deskripsi": item.get("deskripsi", "")
+            })
+        context["poin_kesehatan"] = poin_kesehatan
+
+        poin_keselamatan = []
+        for i, item in enumerate(raw_context.get("keselamatan_kerja", [])):
+            poin_keselamatan.append({
+                "nomor": f"4.2.{i + 1}",
+                "deskripsi": item.get("deskripsi", "")
+            })
+        context["poin_keselamatan"] = poin_keselamatan
+
+        # 5. MAPPING DOKUMEN TERKAIT
+        dokumen_terkait_formatted = []
+        for i, doc in enumerate(raw_context.get("dokumen_terkait", [])):
+            dokumen_terkait_formatted.append({
+                "nomor_subbab": f"5.{i + 1}",
+                "nomor_dokumen": doc.get("nomor", ""),
+                "job_desk": doc.get("deskripsi", "") # Template menggunakan tag job_desk
+            })
+        context["dokumen_terkait"] = dokumen_terkait_formatted
+
+        # 6. INISIALISASI TEMPLATE
+        template_path = "templates/template_wi.docx"
+        doc = DocxTemplate(template_path)
+        
+        # 7. MAPPING LAMPIRAN & GAMBAR DINAMIS
+        lampiran_data = raw_context.get("lampiran", [])
+        if not lampiran_data or len(lampiran_data) == 0:
+            # Jika kosong, kirim teks N/A dan kosongkan daftar_lampiran
+            context["teks_lampiran"] = "- N/A"
+            context["daftar_lampiran"] = [] 
+        else:
+            # Jika ada isinya, kosongkan teks N/A dan proses gambarnya
+            context["teks_lampiran"] = ""
+            daftar_lampiran_formatted = []
+            for i, lamp in enumerate(lampiran_data):
+                ref_subbab = f"6.{i + 1} {lamp.get('judul', '')}"
+                lamp_item = {
+                    "nomor_subbab": f"6.{i + 1}",
+                    "judul_lampiran": lamp.get("judul", ""),
+                    "objek_media": "[Tidak ada file lampiran]"
+                }
                 
-                if os.path.exists(local_image_path):
-                    # Ubah menjadi Objek Gambar
-                    lampiran["objek_media"] = InlineImage(doc, local_image_path, width=Mm(150))
-                else:
-                    lampiran["objek_media"] = "[File gambar fisik hilang dari server]"
-            else:
-                lampiran["objek_media"] = "[Tidak ada lampiran yang diunggah untuk subbab ini]"
+                attachment = db.query(models.DocumentAttachment).filter(
+                    models.DocumentAttachment.document_id == document_id,
+                    models.DocumentAttachment.subchapter_reference == ref_subbab
+                ).first()
+                
+                if attachment:
+                    local_image_path = attachment.file_path.split("8000/")[-1]
+                    if os.path.exists(local_image_path):
+                        lamp_item["objek_media"] = InlineImage(doc, local_image_path, width=Mm(150))
+                    else:
+                        lamp_item["objek_media"] = "[Gambar fisik hilang]"
+                        
+                daftar_lampiran_formatted.append(lamp_item)
+            context["daftar_lampiran"] = daftar_lampiran_formatted
 
-    # 5. Render data dan gambar ke template
-    doc.render(context)
-    
-    # 6. Simpan sebagai .docx sementara (Temporary)
-    temp_docx_name = f"doc_{document_id}_temp.docx"
-    temp_docx_path = f"uploads/{temp_docx_name}"
-    doc.save(temp_docx_path)
+        # 8. RENDER & SIMPAN
+        doc.render(context)
+        temp_docx_name = f"doc_{document_id}_temp.docx"
+        temp_docx_path = f"uploads/{temp_docx_name}"
+        doc.save(temp_docx_path)
 
-    # 7. Konversi ke PDF
+    else:
+        # LOGIKA DOKUMEN OTHERS / MANUAL UPLOAD
+        attachment = db.query(models.DocumentAttachment).filter(
+            models.DocumentAttachment.document_id == document_id,
+            models.DocumentAttachment.subchapter_reference == 'Attachment_Utama_Others'
+        ).first()
+
+        if not attachment:
+            raise HTTPException(status_code=404, detail="Dokumen fisik tidak ditemukan untuk dipratinjau")
+
+        local_docx_path = attachment.file_path.split("8000/")[-1]
+        if not os.path.exists(local_docx_path):
+            raise HTTPException(status_code=404, detail="File fisik hilang dari server")
+            
+        temp_docx_path = local_docx_path
+
+    # KONVERSI PDF UNTUK KEDUANYA
     final_pdf_name = f"doc_{document_id}_final.pdf"
     final_pdf_path = f"uploads/{final_pdf_name}"
     
     try:
-        # Wajib dipanggil untuk mengaktifkan MS Word di thread FastAPI
         pythoncom.CoInitialize()
         convert(temp_docx_path, final_pdf_path)
     finally:
-        # Wajib dilepas agar tidak membebani memori server
         pythoncom.CoUninitialize()
 
-    # 8. Bersihkan file .docx sementara
-    if os.path.exists(temp_docx_path):
+    if document.category == 'WI' and os.path.exists(temp_docx_path):
         os.remove(temp_docx_path)
 
-    # 9. Kirim File PDF Final ke User
     return FileResponse(
         path=final_pdf_path, 
         filename=final_pdf_name, 

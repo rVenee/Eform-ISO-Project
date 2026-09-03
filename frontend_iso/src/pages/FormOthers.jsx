@@ -188,10 +188,19 @@ export default function FormOthers() {
                     required
                   >
                     <option value="" disabled>Pilih Kategori</option>
-                    <option value="NCR">NCR</option>
-                    <option value="DOP">DOP</option>
-                    <option value="JB">JB</option>
-                    <option value="TM">TM</option>
+                    
+                    <optgroup label="Dokumen Utama (Manual Upload)">
+                      <option value="QM">QM</option>
+                      <option value="SOP">SOP</option>
+                      <option value="FM_FR">FM/FR</option>
+                    </optgroup>
+                    
+                    <optgroup label="Dokumen Lainnya">
+                      <option value="NCR">NCR</option>
+                      <option value="DOP">DOP</option>
+                      <option value="JB">JB</option>
+                      <option value="TM">TM</option>
+                    </optgroup>
                   </select>
                 </div>
                 <div>

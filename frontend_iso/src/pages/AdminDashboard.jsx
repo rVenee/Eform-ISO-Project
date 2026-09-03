@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Search, ClipboardCheck, GitBranch, ChevronDown, Download, FileText, Folder, LayoutGrid } from 'lucide-react';
+import { Search, ClipboardCheck, GitBranch, ChevronDown, Download, FileText, Folder, LayoutGrid, Loader2 } from 'lucide-react';
 import apiClient from '../api/axios';
 
 export default function AdminDashboard() {
@@ -15,6 +15,9 @@ export default function AdminDashboard() {
   const [endDate, setEndDate] = useState('');
 
   const navigate = useNavigate();
+
+  // State untuk melacak ID dokumen yang sedang diunduh
+  const [downloadingId, setDownloadingId] = useState(null);
 
   // Fungsi Fetch Data yang bisa dipanggil kapan saja
   const fetchFilteredDocuments = useCallback(async (showLoading = true) => {
@@ -63,6 +66,29 @@ export default function AdminDashboard() {
 
   const handleResetFilters = () => {
     setSearchQuery(''); setCategory(''); setStatusFilter(''); setStartDate(''); setEndDate('');
+  };
+
+  const handleDownload = async (doc) => {
+    setDownloadingId(doc.document_id); // Aktifkan loading untuk ID ini
+    
+    try {
+      const res = await apiClient.get(`/documents/${doc.document_id}/export`, { responseType: 'blob' });
+      const url = window.URL.createObjectURL(new Blob([res.data]));
+      
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `${doc.title || 'Dokumen_ISO'}.pdf`);
+      
+      document.body.appendChild(link);
+      link.click();
+      
+      link.parentNode.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      alert("Gagal mengunduh dokumen. Pastikan server merespons dengan benar.");
+    } finally {
+      setDownloadingId(null);
+    }
   };
 
   const getStatusStyle = (status) => {
@@ -195,10 +221,26 @@ export default function AdminDashboard() {
                           Review
                         </button>
                       ) : doc.status?.toLowerCase() === 'disetujui' ? (
-                        <button className="flex items-center justify-center gap-2 px-3 py-2 border border-[#126863] text-[#126863] rounded-lg font-bold text-xs hover:bg-teal-50 transition-colors w-24">
-                          <Download size={14} strokeWidth={3} /> Unduh
+                        <button 
+                          onClick={() => handleDownload(doc)}
+                          disabled={downloadingId === doc.document_id}
+                          className={`flex items-center justify-center gap-2 px-3 py-2 border border-[#126863] text-[#126863] rounded-lg font-bold text-xs transition-colors w-24 ${
+                            downloadingId === doc.document_id 
+                              ? 'opacity-70 cursor-not-allowed bg-teal-50' 
+                              : 'hover:bg-teal-50'
+                          }`}
+                          title="Unduh Dokumen Final"
+                        >
+                          {downloadingId === doc.document_id ? (
+                            <Loader2 size={14} className="animate-spin" strokeWidth={3} />
+                          ) : (
+                            <Download size={14} strokeWidth={3} />
+                          )}
+                          {downloadingId === doc.document_id ? 'Proses...' : 'Unduh'}
                         </button>
-                      ) : (<div className="w-24 text-gray-400 text-xs italic">Menunggu User</div>)}
+                      ) : (
+                        <div className="w-24 text-gray-400 text-xs italic">Menunggu User</div>
+                      )}
                     </div>
                   </td>
                 </tr>

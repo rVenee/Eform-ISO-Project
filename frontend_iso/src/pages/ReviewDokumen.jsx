@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, CheckCircle2, RotateCcw, XCircle, Download, UploadCloud, FileText, X } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, RotateCcw, XCircle, Download, UploadCloud, FileText, X, Check } from 'lucide-react';
 import apiClient from '../api/axios';
 
 let strictModeTimeout;
@@ -11,17 +11,16 @@ export default function ReviewDokumen() {
 
   const [document, setDocument] = useState(null);
   const [pdfUrl, setPdfUrl] = useState('');
-  const [pdfError, setPdfError] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   
-  // State Form Administrasi
+  // State Form Administrasi (Penamaan disamakan dengan API)
   const [formData, setFormData] = useState({
     document_number: '',
     revision_number: '',
     effective_date: '',
     checked_by: '',
     approved_by: '',
-    final_pdf_file: null, // Khusus untuk dokumen 'Others'
+    final_pdf_file: null, 
     final_pdf_name: ''
   });
 
@@ -29,26 +28,40 @@ export default function ReviewDokumen() {
   const [showRevisionModal, setShowRevisionModal] = useState(false);
   const [revisionNotes, setRevisionNotes] = useState('');
 
+  // State Modal Preview Final
+  const [showFinalModal, setShowFinalModal] = useState(false);
+  const [finalPdfUrl, setFinalPdfUrl] = useState('');
+  const [isGeneratingFinal, setIsGeneratingFinal] = useState(false);
+
   useEffect(() => {
-    // Batalkan timeout unmount palsu jika komponen di-remount cepat oleh React
     if (strictModeTimeout) clearTimeout(strictModeTimeout);
 
     const fetchDocumentData = async () => {
       try {
-        // PERHATIAN: Hapus await apiClient.put(`/documents/${id}/lock`); dari sini.
-        // Cukup tarik data saja, dokumen sudah dikunci di Dasbor
         const res = await apiClient.get(`/documents/${id}/detail`);
         setDocument(res.data.metadata);
 
+        const revRes = await apiClient.get(`/documents/${id}/revisions`);
+        const totalRevisions = revRes.data ? revRes.data.length : 0;
+        const formattedRevision = totalRevisions.toString().padStart(2, '0');
+
+        // PERBAIKAN BUG VALIDASI: Menggunakan key yang selaras
+        setFormData(prev => ({
+          ...prev,
+          document_number: res.data.metadata.document_number || '',
+          revision_number: formattedRevision, 
+          effective_date: res.data.metadata.effective_date || '',
+          checked_by: res.data.metadata.checked_by || '',
+          approved_by: res.data.metadata.approved_by || ''
+        }));
+
         const category = res.data.metadata.category?.toUpperCase();
-        if (['WI', 'SOP', 'QM', 'FM_FR'].includes(category)) {
+        if (['WI'].includes(category)) {
           const pdfRes = await apiClient.get(`/documents/${id}/export`, { responseType: 'blob' });
           const url = URL.createObjectURL(pdfRes.data);
           setPdfUrl(url);
         }
       } catch (error) {
-        console.error("Gagal memuat dokumen:", error);
-        // Jika gagal tarik data, kembalikan ke admin
         navigate('/admin');
       } finally {
         setIsLoading(false);
@@ -56,14 +69,24 @@ export default function ReviewDokumen() {
     };
     fetchDocumentData();
 
-    // CLEANUP AMAN: Beri jeda agar React Strict Mode tidak merusak kuncian saat merender ulang.
+    const handleTabClose = () => {
+      const token = localStorage.getItem('token');
+      fetch(`http://localhost:8000/documents/${id}/unlock`, {
+        method: 'PUT',
+        keepalive: true,
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+    };
+    window.addEventListener('beforeunload', handleTabClose);
+
     return () => {
       if (pdfUrl) URL.revokeObjectURL(pdfUrl);
+      if (finalPdfUrl) URL.revokeObjectURL(finalPdfUrl);
+      window.removeEventListener('beforeunload', handleTabClose); 
       strictModeTimeout = setTimeout(() => {
         apiClient.put(`/documents/${id}/unlock`).catch(() => {});
       }, 500);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
   const handleInputChange = (field, value) => {
@@ -79,6 +102,8 @@ export default function ReviewDokumen() {
     }
   };
 
+  const isOthersDocument = document && document.category?.toUpperCase() !== 'WI';
+
   // --- API HANDLERS ---
 
   const handleCancelReview = async () => {
@@ -86,35 +111,77 @@ export default function ReviewDokumen() {
       await apiClient.put(`/documents/${id}/unlock`);
       navigate('/admin');
     } catch (error) {
-      navigate('/admin'); // Tetap kembalikan ke dashboard meskipun gagal unlock
+      navigate('/admin'); 
     }
   };
 
-  const handleApprove = async () => {
-    // Validasi form
+  // FUNGSI 1: Mempersiapkan Pratinjau Final
+  const handlePrepareFinalPreview = async () => {
     if (!formData.document_number || !formData.revision_number || !formData.effective_date || !formData.checked_by || !formData.approved_by) {
-      alert("Harap lengkapi seluruh Detail Administrasi sebelum menyetujui dokumen.");
+      alert("Harap lengkapi seluruh Detail Administrasi (Bintang Merah) sebelum menyetujui dokumen.");
       return;
     }
 
-    const isOthers = !['WI', 'SOP', 'QM', 'FM_FR'].includes(document?.category?.toUpperCase());
-    if (isOthers && !formData.final_pdf_file) {
-      alert("Untuk dokumen eksternal (NCR/DOP/dll), Anda wajib mengunggah File PDF Final yang sudah dicap/ditandatangani.");
+    if (isOthersDocument && !formData.final_pdf_file) {
+      alert("Untuk dokumen eksternal, Anda wajib mengunggah File PDF Final yang sudah dicap/ditandatangani.");
       return;
     }
 
-    setIsLoading(true);
+    setIsGeneratingFinal(true);
     try {
-      // 1. Submit Status Review
+      // Simpan sementara detail administrasi ke backend agar PDF baru terisi
+      await apiClient.put(`/documents/${id}`, {
+        category: document.category,
+        title: document.title,
+        document_number: formData.document_number,
+        revision_number: formData.revision_number,
+        effective_date: formData.effective_date,
+        checked_by: formData.checked_by,
+        approved_by: formData.approved_by,
+        status: 'Direview' // Biarkan status tetap direview
+      });
+
+      if (isOthersDocument) {
+        // Jika upload manual, langsung jadikan file lokal sebagai preview
+        const url = URL.createObjectURL(formData.final_pdf_file);
+        setFinalPdfUrl(url);
+      } else {
+        // Tarik ulang PDF yang sudah di-update dengan data administrasi baru
+        const pdfRes = await apiClient.get(`/documents/${id}/export`, { responseType: 'blob' });
+        const url = URL.createObjectURL(pdfRes.data);
+        setFinalPdfUrl(url);
+      }
+
+      setShowFinalModal(true);
+    } catch (error) {
+      alert("Gagal memuat pratinjau final dokumen.");
+    } finally {
+      setIsGeneratingFinal(false);
+    }
+  };
+
+  // FUNGSI 2: Eksekusi Persetujuan Final (Setelah Admin yakin dengan Preview)
+  const handleFinalApprove = async () => {
+    setIsLoading(true);
+    setShowFinalModal(false);
+    
+    try {
+      // Jika dokumen manual (Others), kirim file PDF-nya ke backend
+      if (isOthersDocument && formData.final_pdf_file) {
+        const fileData = new FormData();
+        fileData.append('subchapter_reference', 'Final_PDF_Approved');
+        fileData.append('file', formData.final_pdf_file);
+        await apiClient.post(`/documents/${id}/attachments`, fileData, {
+          headers: { 'Content-Type': 'multipart/form-data' }
+        });
+      }
+
       await apiClient.put(`/documents/${id}/review`, {
         status: 'Disetujui',
         document_number: formData.document_number,
         revision_number: formData.revision_number,
         effective_date: formData.effective_date
       });
-
-      // 2. Jika dokumen Others, upload file PDF finalnya (opsional: butuh endpoint khusus upload final pdf di backend nantinya)
-      // if (isOthers && formData.final_pdf_file) { ... }
 
       navigate('/admin');
     } catch (error) {
@@ -142,14 +209,12 @@ export default function ReviewDokumen() {
     }
   };
 
-  const isOthersDocument = document && !['WI', 'SOP', 'QM', 'FM_FR'].includes(document.category?.toUpperCase());
-
   if (isLoading && !document) {
     return <div className="flex items-center justify-center h-full"><div className="animate-spin w-10 h-10 border-4 border-[#126863] border-t-transparent rounded-full"></div></div>;
   }
 
   return (
-    <div className="max-w-7xl mx-auto h-[calc(100vh-120px)] flex flex-col">
+    <div className="max-w-7xl mx-auto h-[calc(100vh-120px)] flex flex-col relative">
       <button onClick={handleCancelReview} className="flex items-center gap-2 text-gray-500 hover:text-[#126863] w-fit mb-4 font-medium transition-colors">
         <ArrowLeft size={18} /> Kembali ke Dashboard
       </button>
@@ -168,7 +233,6 @@ export default function ReviewDokumen() {
                 Dokumen ini tidak menggunakan E-Form. Silakan unduh dokumen mentah (Word), lengkapi secara manual, ubah menjadi PDF, lalu unggah kembali versi finalnya.
               </p>
               
-              {/* Tombol Unduh (Misal diarahkan ke endpoint download attachment mentah) */}
               <button className="flex items-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-sm transition-colors mb-10">
                 <Download size={18} /> Unduh Dokumen Mentah (Word)
               </button>
@@ -197,11 +261,15 @@ export default function ReviewDokumen() {
           ) : (
             <>
               <div className="bg-gray-50 border-b border-gray-200 p-4 flex justify-between items-center shrink-0">
-                <h3 className="font-bold text-gray-700">Preview PDF</h3>
+                <h3 className="font-bold text-gray-700">Preview E-Form PDF</h3>
               </div>
               <div className="flex-1 bg-gray-100 p-2">
                 {pdfUrl ? (
-                  <iframe src={pdfUrl} className="w-full h-full rounded-xl border border-gray-300 shadow-inner" title="PDF Preview" />
+                  <iframe 
+                    src={`${pdfUrl}#toolbar=0`} 
+                    className="w-full h-full rounded-xl border border-gray-300 shadow-inner" 
+                    title="PDF Preview" 
+                  />
                 ) : (
                   <div className="h-full flex items-center justify-center text-gray-400 font-medium">Memuat pratinjau...</div>
                 )}
@@ -220,8 +288,13 @@ export default function ReviewDokumen() {
               <input type="text" value={formData.document_number} onChange={(e) => handleInputChange('document_number', e.target.value)} className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:ring-1 focus:ring-[#126863] focus:border-[#126863] outline-none" required />
             </div>
             <div>
-              <label className="block text-xs font-bold text-gray-600 mb-1.5">Revisi <span className="text-red-500">*</span></label>
-              <input type="text" value={formData.revision_number} onChange={(e) => handleInputChange('revision_number', e.target.value)} placeholder="00" className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:ring-1 focus:ring-[#126863] focus:border-[#126863] outline-none" required />
+              <label className="block text-xs font-bold text-gray-600 mb-1.5">Revisi (Otomatis)</label>
+              <input 
+                type="text" 
+                value={formData.revision_number} 
+                readOnly 
+                className="w-full px-4 py-2.5 border border-gray-200 rounded-lg bg-gray-50 text-gray-500 cursor-not-allowed outline-none"
+              />
             </div>
             <div>
               <label className="block text-xs font-bold text-gray-600 mb-1.5">Tanggal Efektif <span className="text-red-500">*</span></label>
@@ -238,20 +311,80 @@ export default function ReviewDokumen() {
           </div>
 
           <div className="space-y-3 pt-4 border-t border-gray-100 shrink-0">
-            <button onClick={handleApprove} disabled={isLoading} className="w-full flex items-center justify-center gap-2 bg-[#126863] hover:bg-[#0d4f4c] text-white font-bold py-3 rounded-xl transition-colors shadow-sm disabled:opacity-70">
-              <CheckCircle2 size={18} /> Preview & Approve PDF
+            <button 
+              onClick={handlePrepareFinalPreview} 
+              disabled={isLoading || isGeneratingFinal} 
+              className="w-full flex items-center justify-center gap-2 bg-[#126863] hover:bg-[#0d4f4c] text-white font-bold py-3 rounded-xl transition-colors shadow-sm disabled:opacity-70"
+            >
+              {isGeneratingFinal ? (
+                <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+              ) : (
+                <><CheckCircle2 size={18} /> Preview & Approve PDF</>
+              )}
             </button>
-            <button onClick={() => setShowRevisionModal(true)} disabled={isLoading} className="w-full flex items-center justify-center gap-2 border border-gray-300 text-gray-700 hover:bg-gray-50 font-bold py-3 rounded-xl transition-colors disabled:opacity-70">
+            <button onClick={() => setShowRevisionModal(true)} disabled={isLoading || isGeneratingFinal} className="w-full flex items-center justify-center gap-2 border border-gray-300 text-gray-700 hover:bg-gray-50 font-bold py-3 rounded-xl transition-colors disabled:opacity-70">
               <RotateCcw size={18} /> Kembalikan untuk Revisi
             </button>
-            <button onClick={handleCancelReview} disabled={isLoading} className="w-full flex items-center justify-center gap-2 bg-red-600 hover:bg-red-700 text-white font-bold py-3 rounded-xl transition-colors shadow-sm disabled:opacity-70">
+            <button onClick={handleCancelReview} disabled={isLoading || isGeneratingFinal} className="w-full flex items-center justify-center gap-2 bg-red-600 hover:bg-red-700 text-white font-bold py-3 rounded-xl transition-colors shadow-sm disabled:opacity-70">
               <XCircle size={18} /> Batalkan Review
             </button>
           </div>
         </div>
       </div>
 
-      {/* MODAL REVISI */}
+      {/* =========================================
+          MODAL PREVIEW FINAL (ELEGANT FULLSCREEN)
+      ========================================= */}
+      {showFinalModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 md:p-8">
+          <div className="bg-white w-full max-w-6xl h-full rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            
+            {/* Header Modal */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 bg-gray-50">
+              <div>
+                <h3 className="text-lg font-black text-[#126863]">Pratinjau Dokumen Final</h3>
+                <p className="text-xs text-gray-500 font-medium mt-0.5">Pastikan detail administrasi (Kop Surat) sudah terisi dengan benar sebelum disetujui.</p>
+              </div>
+              <button onClick={() => setShowFinalModal(false)} className="text-gray-400 hover:text-red-500 hover:bg-red-50 p-2 rounded-lg transition-colors">
+                <X size={24} strokeWidth={2.5} />
+              </button>
+            </div>
+
+            {/* Iframe PDF */}
+            <div className="flex-1 bg-gray-200 p-2 md:p-6 overflow-hidden">
+              {finalPdfUrl ? (
+                <iframe src={finalPdfUrl} className="w-full h-full rounded-xl shadow-md border border-gray-300 bg-white" title="Final PDF Preview" />
+              ) : (
+                <div className="w-full h-full flex flex-col items-center justify-center">
+                  <div className="w-12 h-12 border-4 border-[#126863]/20 border-t-[#126863] rounded-full animate-spin mb-4"></div>
+                  <p className="text-[#126863] font-bold">Memuat Pratinjau Final...</p>
+                </div>
+              )}
+            </div>
+
+            {/* Footer Aksi */}
+            <div className="px-6 py-4 bg-white border-t border-gray-200 flex justify-end gap-3">
+              <button 
+                onClick={() => setShowFinalModal(false)} 
+                className="px-6 py-2.5 text-sm font-bold text-gray-600 bg-gray-100 rounded-xl hover:bg-gray-200 transition-colors"
+              >
+                Batal
+              </button>
+              <button 
+                onClick={handleFinalApprove} 
+                className="flex items-center gap-2 px-8 py-2.5 text-sm font-bold text-white bg-[#126863] rounded-xl hover:bg-[#0d4f4c] shadow-md transition-colors"
+              >
+                <Check size={18} strokeWidth={3} /> Ya, Setujui Dokumen
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* =========================================
+          MODAL REVISI
+      ========================================= */}
       {showRevisionModal && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 backdrop-blur-sm px-4">
           <div className="bg-white rounded-[24px] w-full max-w-lg p-8 shadow-2xl">
