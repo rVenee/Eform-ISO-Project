@@ -14,15 +14,13 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
 # Endpoint untuk mendaftarkan pengguna baru (Developer/Admin IT)
 @router.post("/register", response_model=schemas.UserResponse, status_code=status.HTTP_201_CREATED)
 def register_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
-    # Cek apakah username sudah ada
     existing_user = db.query(models.User).filter(models.User.username == user.username).first()
     if existing_user:
         raise HTTPException(status_code=400, detail="Username sudah terdaftar!")
     
-    # Acak password
+    # Hash password sebelum disimpan (tidak simpan plaintext)
     hashed_password = security.get_password_hash(user.password)
     
-    # Buat dan simpan user baru
     new_user = models.User(
         username=user.username,
         password=hashed_password,
@@ -38,18 +36,15 @@ def register_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
 # Endpoint untuk login dan mendapatkan Token JWT
 @router.post("/login")
 def login(user_credentials: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
-    # Cari user di database
     user = db.query(models.User).filter(models.User.username == user_credentials.username).first()
-    
-    # Cek kecocokan username dan password
+
     if not user or not security.verify_password(user_credentials.password, user.password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, 
             detail="Username atau password salah!",
             headers={"WWW-Authenticate": "Bearer"}
         )
-    
-    # Buat Token JWT
+
     access_token = security.create_access_token(
         data={"sub": user.username, "role": user.role}
     )
@@ -74,7 +69,6 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     )
     
     try:
-        # Bongkar token
         payload = jwt.decode(token, security.SECRET_KEY, algorithms=[security.ALGORITHM])
         username: str = payload.get("sub")
         if username is None:

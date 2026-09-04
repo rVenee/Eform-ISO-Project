@@ -13,7 +13,6 @@ class User(Base):
     section = Column(String(100), nullable=True)
     role = Column(Enum('admin_iso', 'user', 'admin_it'), nullable=False)
 
-    # Menghubungkan User dengan dokumen dan log revisinya
     documents = relationship("Document", back_populates="owner", foreign_keys="[Document.user_id]")
     revisions = relationship("RevisionLog", back_populates="reviewer", cascade="all, delete-orphan")
 
@@ -34,12 +33,10 @@ class Document(Base):
     locked_by = Column(Integer, ForeignKey("USERS.user_id", ondelete="SET NULL"), nullable=True)
     created_date = Column(TIMESTAMP, server_default=func.now())
     updated_date = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now())
-    effective_date = Column(Date, nullable=True)
     prepared_date = Column(Date, nullable=True)
     checked_date = Column(Date, nullable=True)
     approved_date = Column(Date, nullable=True)
 
-    # Relasi dua arah
     owner = relationship("User", back_populates="documents", foreign_keys=[user_id])
     locker = relationship("User", foreign_keys=[locked_by])
     contents = relationship("DocumentContent", back_populates="document", cascade="all, delete-orphan")

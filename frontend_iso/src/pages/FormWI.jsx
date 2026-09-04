@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Info, X, Save, Send, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Info, X, Save, Send, CheckCircle2, AlertCircle, Lightbulb } from 'lucide-react';
 import apiClient from '../api/axios';
 
 export default function FormWI() {
@@ -10,6 +10,7 @@ export default function FormWI() {
   const [isLoading, setIsLoading] = useState(false);
   const [status, setStatus] = useState({ type: '', message: '' });
   const [showConfirm, setShowConfirm] = useState(false);
+  const [showAttachmentAlert, setShowAttachmentAlert] = useState(false);
 
   // State Utama Form Dinamis
   const [formData, setFormData] = useState({
@@ -47,6 +48,9 @@ export default function FormWI() {
                 ? isi_form.lampiran.map(l => ({ judul: l.judul, file: null, fileName: '' })) 
                 : [{ judul: '', file: null, fileName: '' }]
             });
+            if (isi_form.lampiran && isi_form.lampiran.length > 0) {
+              setShowAttachmentAlert(true);
+            }
           } else {
             setFormData(prev => ({ ...prev, judul: metadata.title || '' }));
           }
@@ -287,12 +291,16 @@ export default function FormWI() {
                 <label className="block text-sm font-bold text-gray-500 mb-2">Judul Instruksi Kerja <span className="text-red-500">*</span></label>
                 <input 
                   type="text" 
+                  maxLength={65}
                   value={formData.judul}
                   onChange={(e) => handleBasicChange('judul', e.target.value)}
-                  placeholder="Contoh: Bongkar Pasang Atap" 
+                  placeholder="Contoh: Prosedur Pengoperasian Mesin Potong" 
                   className="w-full px-4 py-3.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-[#126863] text-gray-700"
                   required
                 />
+                <div className="text-right text-xs mt-1.5 font-medium text-gray-400">
+                  {formData.judul.length} / 65 karakter maksimal
+                </div>
               </div>
             </div>
           </div>
@@ -508,7 +516,16 @@ export default function FormWI() {
             <div className="w-10 h-10 rounded-full bg-[#f0f7f7] text-[#126863] flex items-center justify-center font-bold text-lg shrink-0 mt-1">6</div>
             <div className="flex-1">
               <h2 className="text-[22px] font-bold text-[#126863] leading-none mb-1">Lampiran</h2>
-              <p className="text-sm text-gray-400 mb-8">Lampiran dalam bentuk tabel atau gambar (PDF/Word/Image)</p>
+              <p className="text-sm text-gray-400 mb-4">Lampiran pendukung berupa gambar/foto (Format: JPG, JPEG, PNG)</p>
+
+              <div className="mb-8 p-3.5 bg-[#f0f7f7] border border-[#126863]/20 rounded-xl flex items-start gap-3">
+                {/* Pastikan Anda sudah mengimport ikon Lightbulb dari lucide-react jika belum */}
+                <Lightbulb size={18} className="text-[#126863] shrink-0 mt-0.5" strokeWidth={2.5} />
+                <p className="text-xs text-[#126863] leading-relaxed">
+                  <strong>Punya lampiran berupa tabel data?</strong> <br />
+                  Sistem kami akan memproses file secara otomatis ke dalam dokumen ISO. Harap buat tabel Anda di Excel atau Word agar rapi, lalu ambil tangkapan layar (<strong>Screenshot / Snipping Tool</strong>), dan unggah hasil gambarnya ke sini.
+                </p>
+              </div>
               
               <div className="space-y-8">
                 {formData.lampiran.map((lamp, index) => (
@@ -529,7 +546,12 @@ export default function FormWI() {
                     <div className="ml-12 flex items-center gap-4">
                       <label className="cursor-pointer px-5 py-2.5 border border-gray-200 text-gray-600 text-sm font-semibold rounded-xl hover:bg-gray-50 transition-colors">
                         Unggah File
-                        <input type="file" className="hidden" onChange={(e) => handleFileChange(index, e)} />
+                        <input 
+                          type="file" 
+                          className="hidden" 
+                          accept="image/jpeg, image/png, image/jpg" 
+                          onChange={(e) => handleFileChange(index, e)} 
+                        />
                       </label>
                       {lamp.fileName && <span className="text-sm text-[#126863] font-medium">{lamp.fileName}</span>}
                     </div>
@@ -591,6 +613,32 @@ export default function FormWI() {
                 Ya, Kirim Sekarang
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* =========================================
+          Modal Peringatan Upload Ulang Lampiran
+      ========================================= */}
+      {showAttachmentAlert && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 backdrop-blur-sm px-4">
+          <div className="bg-white rounded-[20px] w-full max-w-sm p-7 shadow-2xl text-center">
+            <div className="w-16 h-16 bg-amber-100 text-amber-500 rounded-full flex items-center justify-center mx-auto mb-4">
+              <AlertCircle size={32} />
+            </div>
+            <h3 className="text-xl font-black text-gray-800 mb-2">Upload Ulang Lampiran</h3>
+            <p className="text-sm text-gray-500 mb-6 leading-relaxed">
+              Karena alasan keamanan sistem, file fisik lampiran Anda sebelumnya tidak dapat ditampilkan secara otomatis. 
+              <br /><br />
+              Harap <strong>unggah ulang file gambar</strong> pada setiap kolom lampiran sebelum Anda menyimpan draf kembali atau mengirimnya ke Unit ISO.
+            </p>
+            <button 
+              type="button" 
+              onClick={() => setShowAttachmentAlert(false)} 
+              className="px-5 py-2.5 text-sm font-bold text-white bg-[#126863] rounded-xl hover:bg-[#0d4f4c] shadow-sm transition-colors w-full"
+            >
+              Saya Mengerti
+            </button>
           </div>
         </div>
       )} 

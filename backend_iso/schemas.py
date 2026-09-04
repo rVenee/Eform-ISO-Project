@@ -9,7 +9,7 @@ class RoleEnum(str, Enum):
     admin_it = "admin_it"
 
 # ========================================
-# SCHEMAS UNTUK AUTHENTICATION (BARU)
+# SCHEMAS UNTUK AUTHENTICATION
 # ========================================
 class Token(BaseModel):
     access_token: str

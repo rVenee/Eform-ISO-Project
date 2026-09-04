@@ -8,12 +8,17 @@ from fastapi.responses import FileResponse
 from docxtpl import DocxTemplate, InlineImage
 from docx.shared import Mm
 from docx2pdf import convert
-import models, schemas
 from auth import get_current_user
+from dotenv import load_dotenv
+import models, schemas
 import os
 import shutil
 import pythoncom
 import json
+
+load_dotenv()
+# Ambil dari .env
+BASE_URL = os.getenv("BASE_URL", "http://127.0.0.1:8000")
 
 # Inisialisasi router untuk dokumen
 router = APIRouter(prefix="/documents", tags=["Documents"])
@@ -66,16 +71,12 @@ def get_all_documents(
         # Jika Admin ISO, ambil semua KECUALI yang masih Draft (belum disubmit user)
         query = query.filter(models.Document.status != 'Draft')
         
-    # Filter kategori (contoh: 'WI', 'SOP')
     if category:
         query = query.filter(models.Document.category == category)
         
-    # ... (Sisa filter status, search, date, dan order_by tetap sama persis seperti kode Anda) ...
-    # Filter status (contoh: 'Disetujui', 'Direvisi')
     if status:
         query = query.filter(models.Document.status == status)
         
-    # Filter pencarian teks (mencari di Judul ATAU Nomor Dokumen)
     if search:
         query = query.filter(
             or_(
@@ -83,14 +84,12 @@ def get_all_documents(
                 models.Document.document_number.ilike(f"%{search}%")
             )
         )
-        
-    # Filter rentang waktu pembuatan
+
     if start_date:
         query = query.filter(models.Document.created_date >= start_date)
     if end_date:
         query = query.filter(models.Document.created_date <= end_date)
-        
-    # Urutkan dari yang paling baru diubah
+
     documents = query.order_by(models.Document.updated_date.desc()).all()
     return documents
 
@@ -102,7 +101,6 @@ def update_document(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
-    # Cari dokumen berdasarkan ID
     document_query = db.query(models.Document).filter(models.Document.document_id == document_id)
     document = document_query.first()
     
@@ -124,7 +122,6 @@ def delete_document(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
-    # Cari dokumen berdasarkan ID
     document_query = db.query(models.Document).filter(models.Document.document_id == document_id)
     document = document_query.first()
     
@@ -151,7 +148,8 @@ def save_document_content(
     existing_content = db.query(models.DocumentContent).filter(models.DocumentContent.document_id == document_id).first()
     
     if existing_content:
-        # BYPASS BUG SQLALCHEMY: Paksa update JSON secara eksplisit di level database
+        # WORKAROUND: SQLAlchemy tidak mendeteksi perubahan in-place pada kolom JSON
+        # (mutable tracking gagal), jadi update dipaksa lewat query eksplisit.
         db.query(models.DocumentContent).filter(models.DocumentContent.document_id == document_id).update(
             {"form_data": content.form_data}, synchronize_session=False
         )
@@ -175,15 +173,12 @@ def get_document_detail(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
-    # Ambil metadata
     document = db.query(models.Document).filter(models.Document.document_id == document_id).first()
     if not document:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dokumen tidak ditemukan")
         
-    # Ambil isi form
     content = db.query(models.DocumentContent).filter(models.DocumentContent.document_id == document_id).first()
-    
-    # Gabungkan untuk frontend
+
     return {
         "metadata": document,
         "isi_form": content.form_data if content else None
@@ -193,12 +188,11 @@ def get_document_detail(
 @router.post("/{document_id}/attachments", response_model=schemas.AttachmentResponse)
 def upload_attachment(
     document_id: int,
-    subchapter_reference: str = Form(...), # Menerima input referensi subbab
+    subchapter_reference: str = Form(...),
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
-    # Cek ketersediaan dokumen induk
     document = db.query(models.Document).filter(models.Document.document_id == document_id).first()
     if not document:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dokumen tidak ditemukan")
@@ -207,13 +201,11 @@ def upload_attachment(
     safe_filename = file.filename.replace(" ", "_")
     file_name = f"doc{document_id}_{safe_filename}"
     file_path = f"uploads/{file_name}"
-    
-    # Simpan file secara fisik ke folder uploads
+
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
-        
-    # Kembalikan link URL agar bisa diakses Frontend
-    file_url = f"http://127.0.0.1:8000/uploads/{file_name}"
+
+    file_url = f"{BASE_URL}/uploads/{file_name}"
     
     # Simpan rekam jejak ke database (Tabel DOCUMENTS_ATTACHMENTS)
     new_attachment = models.DocumentAttachment(
@@ -235,15 +227,13 @@ def review_document(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
-    # Cari dokumen yang dituju
     document = db.query(models.Document).filter(models.Document.document_id == document_id).first()
     if not document:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dokumen tidak ditemukan")
 
     if not document.checked_date:
         document.checked_date = date.today()
-        
-    # Perbarui status sesuai keputusan
+
     document.status = review_data.status
     
     if review_data.status == "Disetujui":
@@ -276,7 +266,6 @@ def get_revision_logs(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
-    # Ambil log dan urutkan dari yang paling baru
     logs = db.query(models.RevisionLog).filter(models.RevisionLog.document_id == document_id).order_by(models.RevisionLog.date_create.desc()).all()
     return logs
 
@@ -366,7 +355,7 @@ def export_document_pdf(
             dokumen_terkait_formatted.append({
                 "nomor_subbab": f"5.{i + 1}",
                 "nomor_dokumen": doc.get("nomor", ""),
-                "job_desk": doc.get("deskripsi", "") # Template menggunakan tag job_desk
+                "job_desk": doc.get("deskripsi", "")
             })
         context["dokumen_terkait"] = dokumen_terkait_formatted
 
@@ -466,7 +455,6 @@ def lock_document(
     if document.status == "Direview" and document.locked_by and document.locked_by != current_user.user_id:
         raise HTTPException(status_code=400, detail="Gagal! Dokumen baru saja diambil oleh admin lain.")
 
-    # Kunci dokumen untuk admin yang menekan tombol
     document.status = "Direview"
     document.locked_by = current_user.user_id
     db.commit()
@@ -486,7 +474,7 @@ def unlock_document(
     if not document:
         raise HTTPException(status_code=404, detail="Dokumen tidak ditemukan")
 
-    # PERBAIKAN KRUSIAL: HANYA pemegang kunci yang berhak melepas kunci!
+    # HANYA pemegang kunci yang berhak melepas kunci!
     if document.locked_by == current_user.user_id:
         if document.status == "Direview":
             document.status = "Menunggu"

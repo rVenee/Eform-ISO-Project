@@ -10,6 +10,7 @@ import ReviewDokumen from './pages/ReviewDokumen';
 import FormQM from './pages/FormQM';
 import FormSOP from './pages/FormSOP';
 import FormFM from './pages/FormFM';
+import HelpSupport from './pages/HelpSupport'; // Tambahkan import ini
 
 // Cek apakah user sudah login
 const ProtectedRoute = ({ children }) => {
@@ -49,6 +50,9 @@ function App() {
           <Route path="/others" element={<FormOthers />} />
           <Route path="/others/:id" element={<FormOthers />} />
           
+          {/* Rute Help & Support (User Biasa) */}
+          <Route path="/help/contact" element={<HelpSupport />} />
+          
           {/* Rute Khusus Admin (Dilindungi AdminRoute) */}
           <Route path="/admin" element={
             <AdminRoute>
@@ -58,12 +62,25 @@ function App() {
           <Route path="/admin/review/:id" element={
             <AdminRoute>
               <ReviewDokumen />
-            </AdminRoute>} />
+            </AdminRoute>
+          } />
+          {/* Rute Help & Support (Admin ISO) */}
+          <Route path="/admin/help/contact" element={
+            <AdminRoute>
+              <HelpSupport />
+            </AdminRoute>
+          } />
 
           {/* Rute Khusus Admin IT (Dilindungi ITAdminRoute) */}
           <Route path="/it-admin" element={
             <ITAdminRoute>
               <ITAdminDashboard />
+            </ITAdminRoute>
+          } />
+          {/* Rute Help & Support (Admin IT) */}
+          <Route path="/it-admin/help/contact" element={
+            <ITAdminRoute>
+              <HelpSupport />
             </ITAdminRoute>
           } />
         </Route>

@@ -27,6 +27,9 @@ def get_all_users(db: Session = Depends(get_db), current_user: models.User = Dep
 def create_user(user: schemas.UserCreate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     check_admin_access(current_user)
     
+    if len(user.password) < 6:
+        raise HTTPException(status_code=400, detail="Kata sandi minimal 6 karakter")
+    
     existing_user = db.query(models.User).filter(models.User.username == user.username).first()
     if existing_user:
         raise HTTPException(status_code=400, detail="Username sudah terdaftar")

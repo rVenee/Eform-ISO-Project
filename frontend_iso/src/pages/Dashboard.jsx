@@ -472,11 +472,27 @@ export default function Dashboard() {
               
               <h3 className="text-[22px] font-bold text-[#126863] mb-6">Catatan Revisi Dokumen</h3>
               
-              <div className="text-sm text-gray-700 space-y-2 mb-6 bg-gray-50 p-4 rounded-xl border border-gray-100">
-                <p><strong className="w-28 inline-block">Kategori</strong> : {selectedRevisionDoc.category}</p>
-                <p><strong className="w-28 inline-block">Judul</strong> : {selectedRevisionDoc.title}</p>
-                <p><strong className="w-28 inline-block">No. Dokumen</strong> : {selectedRevisionDoc.document_number || '-'}</p>
-                <p><strong className="w-28 inline-block">Ditinjau pada</strong> : {isLoadingRevision ? '...' : (revisionNotes?.date_create ? new Date(revisionNotes.date_create).toLocaleDateString('id-ID', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-')}</p>
+              {/* PERBAIKAN: Menggunakan Grid 3 Kolom */}
+              <div className="bg-gray-50 rounded-xl p-4 mb-6 border border-gray-100">
+                <div className="grid grid-cols-[110px_15px_1fr] gap-y-3 text-sm text-gray-700">
+                  <div className="font-bold">Kategori</div>
+                  <div>:</div>
+                  <div>{selectedRevisionDoc.category}</div>
+
+                  <div className="font-bold">Judul</div>
+                  <div>:</div>
+                  <div className="leading-relaxed pr-2">{selectedRevisionDoc.title}</div>
+
+                  <div className="font-bold">No. Dokumen</div>
+                  <div>:</div>
+                  <div>{selectedRevisionDoc.document_number || '-'}</div>
+
+                  <div className="font-bold">Ditinjau pada</div>
+                  <div>:</div>
+                  <div>
+                    {isLoadingRevision ? '...' : (revisionNotes?.date_create ? new Date(revisionNotes.date_create).toLocaleDateString('id-ID', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-')}
+                  </div>
+                </div>
               </div>
 
               <div className="mb-8">

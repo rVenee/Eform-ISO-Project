@@ -158,7 +158,7 @@ export default function ITAdminDashboard() {
                   >
                     <td className="px-6 py-3.5 text-sm font-medium text-gray-400 text-center align-middle">{index + 1}</td>
                     <td className="px-6 py-3.5 text-center align-middle">
-                      <div className="font-bold text-gray-800">{user.full_name}</div>
+                      <div className="font-bold text-gray-600">{user.full_name}</div>
                       <div className="text-xs text-gray-500">@{user.username}</div>
                     </td>
                     <td className="px-6 py-3.5 text-sm text-gray-600 text-center align-middle">{user.section || '-'}</td>
@@ -222,7 +222,7 @@ export default function ITAdminDashboard() {
       <div className="bg-[#f0f7f7] border border-[#126863]/30 rounded-xl p-4 flex items-start gap-3 shrink-0">
         <ShieldCheck className="text-[#126863] shrink-0 mt-0.5" size={20} />
         <p className="text-sm text-[#126863] leading-relaxed">
-          Saat login, sistem membaca kolom <strong>role</strong> pada tabel <strong>users</strong>: role <strong>Unit ISO</strong> diarahkan ke Dashboard ISO, role <strong>User</strong> diarahkan ke e-Form pembuatan dokumen. Halaman ini menggantikan proses update database secara manual oleh developer.
+          Saat login, sistem membaca kolom <strong>role</strong> pada tabel <strong>users</strong>: role <strong>Unit ISO</strong> diarahkan ke Dashboard ISO, role <strong>User</strong> diarahkan ke e-Form pembuatan dokumen, dan role <strong>Admin IT</strong> diarahkan ke halaman ini. Halaman ini menggantikan proses update database secara manual oleh developer.
         </p>
       </div>
 
@@ -264,7 +264,15 @@ export default function ITAdminDashboard() {
               {(modalMode === 'add' || modalMode === 'reset') && (
                 <div>
                   <label className="block text-xs font-bold text-gray-600 mb-1.5">Kata Sandi Baru</label>
-                  <input type="text" required value={formData.password} onChange={(e) => setFormData({...formData, password: e.target.value})} className="w-full px-4 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#126863]/50 outline-none" placeholder="Minimal 6 karakter" />
+                  <input 
+                    type="password" 
+                    required 
+                    minLength={6}
+                    value={formData.password} 
+                    onChange={(e) => setFormData({...formData, password: e.target.value})} 
+                    className="w-full px-4 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#126863]/50 outline-none text-sm" 
+                    placeholder="Minimal 6 karakter" 
+                  />
                 </div>
               )}
 
