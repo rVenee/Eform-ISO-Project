@@ -47,6 +47,10 @@ class Document(Base):
     def locked_by_name(self):
         return self.locker.full_name if self.locker else None
 
+    @property
+    def creator_section(self):
+        return self.owner.section if self.owner and self.owner.section else 'Umum'
+
 class DocumentContent(Base):
     __tablename__ = "DOCUMENTS_CONTENTS"
 

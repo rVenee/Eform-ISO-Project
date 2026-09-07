@@ -8,11 +8,9 @@ from pydantic import BaseModel
 router = APIRouter(prefix="/users", tags=["User Management (Admin IT)"])
 
 def check_admin_access(current_user: models.User):
-    # Memastikan hanya admin_it (atau admin_iso jika diizinkan) yang bisa mengakses
     if current_user.role not in ["admin_it", "admin_iso"]: 
         raise HTTPException(status_code=403, detail="Akses ditolak. Fitur ini khusus Admin.")
-
-# Skema khusus untuk menerima payload reset password
+    
 class PasswordReset(BaseModel):
     password: str
 
@@ -65,7 +63,7 @@ def update_user(
         user.full_name = user_update.full_name
     if user_update.role:
         user.role = user_update.role
-    if hasattr(user_update, 'section') and user_update.section is not None:
+    if user_update.section is not None:
         user.section = user_update.section
     if user_update.password:
         user.password = security.get_password_hash(user_update.password)

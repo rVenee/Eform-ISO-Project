@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 const apiClient = axios.create({
-  baseURL: 'http://127.0.0.1:8000',
+  baseURL: import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000',
   headers: {
     'Content-Type': 'application/json',
   },
@@ -28,7 +28,7 @@ apiClient.interceptors.response.use(
         alert('Sesi Anda telah berakhir demi keamanan. Silakan login kembali.');
         localStorage.removeItem('token');
         localStorage.removeItem('role');
-        window.location.href = '/'; // Auto-logout
+        window.location.href = '/';
       }
     }
     return Promise.reject(error);

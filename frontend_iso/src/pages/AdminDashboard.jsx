@@ -180,7 +180,7 @@ export default function AdminDashboard() {
             <tr>
               <th className="px-5 py-4 rounded-tl-[20px]">Kategori</th>
               <th className="px-5 py-4">Judul</th>
-              <th className="px-5 py-4">Pengaju</th>
+              <th className="px-5 py-4">Pengaju / Seksi</th>
               <th className="px-5 py-4">No. Dokumen</th>
               <th className="px-5 py-4 text-center">Status</th>
               <th className="px-5 py-4">Dikirim</th>
@@ -195,7 +195,12 @@ export default function AdminDashboard() {
                 <tr key={index} className="hover:bg-gray-50">
                   <td className="px-5 py-4 align-middle"><div className="flex items-center justify-center gap-3">{getCategoryIcon(doc.category)}<span className="w-24 text-left">{doc.category || 'Dokumen'}</span></div></td>
                   <td className="px-5 py-4 text-gray-900 align-middle"><div className="max-w-[180px] lg:max-w-[250px] mx-auto whitespace-normal break-words text-center">{doc.title}</div></td>
-                  <td className="px-5 py-4 text-gray-900 align-middle"><div className="max-w-[150px] mx-auto whitespace-normal break-words text-center">{doc.creator_name || '-'}</div></td>
+                  <td className="px-5 py-4 align-middle">
+                    <div className="flex flex-col items-center justify-center max-w-[150px] mx-auto whitespace-normal break-words text-center">
+                      <span className="text-gray-600 font-bold">{doc.creator_name || '-'}</span>
+                      <span className="text-xs text-gray-500 mt-1">{doc.creator_section || 'Umum'}</span>
+                    </div>
+                  </td>
                   <td className="px-5 py-4 align-middle"><div className="max-w-[150px] mx-auto whitespace-normal break-words text-center">{doc.document_number || '-'}</div></td>
                   <td className="px-5 py-4 align-middle">
                     <div className="flex justify-center relative group">
