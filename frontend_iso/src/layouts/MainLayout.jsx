@@ -10,20 +10,22 @@ export default function MainLayout() {
   const location = useLocation();
   const navigate = useNavigate();
   
-  // Mengambil informasi role dari local storage
   const userRole = localStorage.getItem('role');
   const isAdmin = userRole === 'admin_iso' || location.pathname.startsWith('/admin');
   const [fullName, setFullName] = useState('');
+  const [userSection, setUserSection] = useState('');
   
-  // State untuk Dropdown Help & Support
   const [isHelpOpen, setIsHelpOpen] = useState(false);
 
   // Base path untuk routing dinamis berdasarkan role
   const basePath = userRole === 'admin_it' ? '/it-admin' : isAdmin ? '/admin' : '';
 
   useEffect(() => {
-    const storedName = localStorage.getItem('full_name') || 'User IKPP'; 
+    const storedName = localStorage.getItem('full_name') || 'User IKPP';
+    const storedSection = localStorage.getItem('section') || 'Umum';
+
     setFullName(storedName);
+    setUserSection(storedSection);
     
     // Otomatis buka dropdown jika sedang berada di halaman Help
     if (location.pathname.includes('/help')) {
@@ -80,7 +82,6 @@ export default function MainLayout() {
   return (
     <div className="flex h-screen bg-[#f8f9fa] font-sans">
       
-      {/* Sidebar Kiri */}
       <aside className="w-64 bg-white border-r border-gray-200 flex flex-col shadow-sm z-10">
         <div className="h-20 flex items-center px-6">
           <img src={logoIK} alt="Indah Kiat" className="h-12 object-contain" />
@@ -89,7 +90,6 @@ export default function MainLayout() {
         <div className="flex-1 overflow-y-auto py-4">
           
           {userRole === 'admin_it' ? (
-            /* Menu Khusus Admin IT */
             <>
               <div className="px-6 mb-3 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Admin IT</div>
               <nav className="space-y-1 mb-8">
@@ -99,7 +99,6 @@ export default function MainLayout() {
               </nav>
             </>
           ) : isAdmin ? (
-            /* Menu Admin ISO */
             <>
               <div className="px-6 mb-3 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Unit ISO</div>
               <nav className="space-y-1 mb-8">
@@ -109,7 +108,6 @@ export default function MainLayout() {
               </nav>
             </>
           ) : (
-            /* Menu User Regular */
             <>
               <div className="px-6 mb-3 text-[10px] font-bold text-gray-400 uppercase tracking-widest">User</div>
               <nav className="space-y-1 mb-8">
@@ -162,7 +160,6 @@ export default function MainLayout() {
               />
             </button>
 
-            {/* Isi Dropdown 3 Sub-Menu */}
             {isHelpOpen && (
               <div className="bg-gray-50/50 py-1.5 space-y-1 border-y border-gray-100">
                 <Link 
@@ -189,18 +186,18 @@ export default function MainLayout() {
           </nav>
         </div>
 
-        {/* Profil Bawah */}
-        <div className="p-5 border-t border-gray-200">
-          <p className="text-sm font-bold text-gray-600 text-center truncate px-2" title={fullName}>
+        <div className="p-5 border-t border-gray-200 flex flex-col items-center justify-center">
+          <p className="text-sm font-bold text-gray-700 text-center truncate px-2 w-full" title={fullName}>
             {fullName}
+          </p>
+          <p className="text-[11px] font-medium text-gray-400 text-center truncate px-2 w-full mt-0.5" title={userSection}>
+            {userSection}
           </p>
         </div>
       </aside>
 
-      {/* Area Konten Utama */}
       <div className="flex-1 flex flex-col overflow-hidden">
         
-        {/* Header / Topbar */}
         <header className="h-20 bg-white border-b border-gray-200 flex items-center justify-between px-8">
           <h1 className="text-2xl font-black text-[#126863]">{getPageTitle()}</h1>
           
@@ -212,7 +209,6 @@ export default function MainLayout() {
               ISOTeam <ChevronDown size={16} strokeWidth={3} />
             </span>
             
-            {/* Tombol Logout */}
             <div className="relative group flex items-center ml-4 border-l border-gray-200 pl-6 h-full">
               <button 
                 onClick={handleLogout} 

@@ -15,6 +15,7 @@ export default function FormWI() {
   // State Utama Form Dinamis
   const [formData, setFormData] = useState({
     judul: '',
+    creator_name: '',
     tujuan: '',
     ruang_lingkup: '',
     langkah_kerja: [
@@ -37,6 +38,7 @@ export default function FormWI() {
           if (isi_form) {
             setFormData({
               judul: metadata.title || '',
+              creator_name: metadata.creator_name || '',
               tujuan: isi_form.tujuan || '',
               ruang_lingkup: isi_form.ruang_lingkup || '',
               langkah_kerja: isi_form.langkah_kerja?.length ? isi_form.langkah_kerja : [{ deskripsi: '', sub_langkah: [{ deskripsi: '' }] }],
@@ -52,7 +54,7 @@ export default function FormWI() {
               setShowAttachmentAlert(true);
             }
           } else {
-            setFormData(prev => ({ ...prev, judul: metadata.title || '' }));
+            setFormData(prev => ({ ...prev, judul: metadata.title || '', creator_name: metadata.creator_name || '' }));
           }
         } catch (error) {
           setStatus({ type: 'error', message: 'Gagal memuat data dokumen untuk diedit.' });
@@ -151,8 +153,8 @@ export default function FormWI() {
   // --- VALIDASI PRE-SUBMIT ---
   const handlePreSubmit = () => {
     // Validasi Field Teks Dasar
-    if (!formData.judul.trim() || !formData.tujuan.trim() || !formData.ruang_lingkup.trim()) {
-      alert("⚠️ Harap lengkapi field wajib: Judul, Tujuan, dan Ruang Lingkup.");
+    if (!formData.creator_name?.trim() || !formData.judul.trim() || !formData.tujuan.trim() || !formData.ruang_lingkup.trim()) {
+      alert("⚠️ Harap lengkapi field wajib: Initiator, Judul, Tujuan, dan Ruang Lingkup.");
       return;
     }
 
@@ -200,12 +202,14 @@ export default function FormWI() {
         await apiClient.put(`/documents/${id}`, {
           category: 'WI',
           title: formData.judul,
+          creator_name: formData.creator_name,
           status: isDraft ? 'Draft' : 'Menunggu'
         });
       } else {
         const docRes = await apiClient.post('/documents/', {
           category: 'WI',
           title: formData.judul,
+          creator_name: formData.creator_name,
           status: isDraft ? 'Draft' : 'Menunggu'
         });
         currentDocId = docRes.data.document_id;
@@ -286,22 +290,40 @@ export default function FormWI() {
             </div>
             <div className="flex-1">
               <h2 className="text-[22px] font-bold text-[#126863] leading-none mb-1">Informasi Umum</h2>
-              <p className="text-sm text-gray-400 mb-6">Judul instruksi kerja</p>
-              <div>
-                <label className="block text-sm font-bold text-gray-500 mb-2">Judul Instruksi Kerja <span className="text-red-500">*</span></label>
-                <input 
-                  type="text" 
-                  maxLength={65}
-                  value={formData.judul}
-                  onChange={(e) => handleBasicChange('judul', e.target.value)}
-                  placeholder="Contoh: Prosedur Pengoperasian Mesin Potong" 
-                  className="w-full px-4 py-3.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-[#126863] text-gray-700"
-                  required
-                />
-                <div className="text-right text-xs mt-1.5 font-medium text-gray-400">
-                  {formData.judul.length} / 65 karakter maksimal
+              <p className="text-sm text-gray-400 mb-6">Penyusun dan judul instruksi kerja</p>
+              
+              <div className="space-y-5">
+                {/* 1. Input Initiator (Wajib Diisi) */}
+                <div>
+                  <label className="block text-sm font-bold text-gray-500 mb-2">Initiator (Disiapkan Oleh) <span className="text-red-500">*</span></label>
+                  <input 
+                    type="text" 
+                    value={formData.creator_name || ''}
+                    onChange={(e) => handleBasicChange('creator_name', e.target.value)}
+                    placeholder="Nama lengkap inisiator pembuat dokumen..." 
+                    className="w-full px-4 py-3.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-[#126863] text-gray-700"
+                    required
+                  />
+                </div>
+
+                {/* 2. Input Judul Dokumen */}
+                <div>
+                  <label className="block text-sm font-bold text-gray-500 mb-2">Judul Instruksi Kerja <span className="text-red-500">*</span></label>
+                  <input 
+                    type="text" 
+                    maxLength={65}
+                    value={formData.judul}
+                    onChange={(e) => handleBasicChange('judul', e.target.value)}
+                    placeholder="Contoh: Prosedur Pengoperasian Mesin Potong" 
+                    className="w-full px-4 py-3.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-[#126863] text-gray-700"
+                    required
+                  />
+                  <div className="text-right text-xs mt-1.5 font-medium text-gray-400">
+                    {formData.judul.length} / 65 karakter maksimal
+                  </div>
                 </div>
               </div>
+
             </div>
           </div>
 

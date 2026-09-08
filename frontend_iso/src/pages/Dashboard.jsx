@@ -9,33 +9,29 @@ export default function Dashboard() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
 
-  // State untuk Filter & Pencarian
   const [searchQuery, setSearchQuery] = useState('');
   const [category, setCategory] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
 
-  // State untuk Preview Dokumen
   const [pdfUrl, setPdfUrl] = useState('');
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [isLoadingPreview, setIsLoadingPreview] = useState(false);
 
   const navigate = useNavigate();
 
-  // State untuk Modal Catatan Revisi
   const [isRevisionModalOpen, setIsRevisionModalOpen] = useState(false);
   const [selectedRevisionDoc, setSelectedRevisionDoc] = useState(null);
   const [revisionNotes, setRevisionNotes] = useState(null);
   const [isLoadingRevision, setIsLoadingRevision] = useState(false);
 
-  // State untuk melacak ID dokumen yang sedang diunduh
   const [downloadingId, setDownloadingId] = useState(null);
 
   // Auto-fetch dengan Debounce & Background Polling (5 Detik)
   useEffect(() => {
     const fetchFilteredDocuments = async (isBackground = false) => {
-      if (!isBackground) setIsLoading(true); // Hanya munculkan loading jika bukan dari polling
+      if (!isBackground) setIsLoading(true);
       try {
         const params = {};
         if (searchQuery) params.search = searchQuery;
@@ -53,17 +49,14 @@ export default function Dashboard() {
       }
     };
 
-    // 1. Eksekusi awal / saat filter berubah (menggunakan debounce 500ms)
     const delayDebounceFn = setTimeout(() => {
       fetchFilteredDocuments(false);
     }, 500);
 
-    // 2. Eksekusi polling latar belakang (setiap 5000ms / 5 detik)
     const pollingInterval = setInterval(() => {
-      fetchFilteredDocuments(true); // true = abaikan animasi loading
+      fetchFilteredDocuments(true);
     }, 5000);
 
-    // 3. Bersihkan memori saat komponen di-unmount atau filter berubah
     return () => {
       clearTimeout(delayDebounceFn);
       clearInterval(pollingInterval);
@@ -89,7 +82,6 @@ export default function Dashboard() {
     }
   };
 
-  // Logika Render Ikon Spesifik Kategori
   const getCategoryIcon = (cat) => {
     switch (cat?.toUpperCase()) {
       case 'WI': return <ClipboardCheck size={18} className="text-[#126863]" />;
@@ -134,7 +126,7 @@ export default function Dashboard() {
   };
 
   const handleDownload = async (doc) => {
-    setDownloadingId(doc.document_id); // Aktifkan loading untuk ID ini
+    setDownloadingId(doc.document_id);
     
     try {
       const res = await apiClient.get(`/documents/${doc.document_id}/export`, { responseType: 'blob' });
@@ -152,7 +144,7 @@ export default function Dashboard() {
     } catch (error) {
       alert("Gagal mengunduh dokumen. Pastikan server merespons dengan benar.");
     } finally {
-      setDownloadingId(null); // Matikan loading
+      setDownloadingId(null);
     }
   };
 
@@ -170,7 +162,6 @@ export default function Dashboard() {
       try {
         const res = await apiClient.get(`/documents/${doc.document_id}/revisions`);
         if (res.data && res.data.length > 0) {
-          // Ambil log revisi yang paling baru (indeks 0)
           setRevisionNotes(res.data[0]);
         } else {
           setRevisionNotes({ notes: "Tidak ada catatan revisi spesifik.", date_create: doc.updated_date });
@@ -195,10 +186,9 @@ export default function Dashboard() {
   return (
     <div className="max-w-6xl mx-auto">
       
-      {/* Header Teks & Tombol Buat Dokumen */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
         <p className="text-gray-500 text-sm max-w-2xl leading-relaxed">
-          Daftar dokumen ISO yang pernah Anda buat beserta statusnya. Lihat pratinjau langsung dari sini, edit jika status direvisi, dan unduh untuk melihat document final dengan format pdf.
+          Daftar dokumen yang ada di seksi anda. Lihat pratinjau langsung dari sini, edit jika status direvisi, dan unduh untuk melihat document final dengan format pdf.
         </p>
         <Link 
           to="/form-wi" 
@@ -208,10 +198,8 @@ export default function Dashboard() {
         </Link>
       </div>
 
-      {/* Box Filter Lengkap */}
       <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm space-y-4 mb-4">
         
-        {/* Row 1: Search */}
         <div className="relative">
           <span className="absolute inset-y-0 left-4 flex items-center text-gray-400">
             <Search size={18} strokeWidth={2} />
@@ -225,7 +213,6 @@ export default function Dashboard() {
           />
         </div>
 
-        {/* Row 2: Selectors */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">Category</label>
@@ -270,7 +257,6 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Row 3: Dates & Reset */}
         <div className="flex flex-col md:flex-row gap-4 items-end">
           <div className="flex-1 w-full">
             <label className="block text-sm font-medium text-gray-700 mb-1.5">From date</label>
@@ -299,14 +285,12 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Pesan Error */}
       {error && (
         <div className="p-4 bg-red-50 text-red-600 rounded-xl text-sm font-medium border border-red-100 mb-4">
           {error}
         </div>
       )}
 
-      {/* Tabel Data */}
       <div className="bg-white rounded-[20px] border border-gray-200 shadow-sm overflow-x-auto min-h-[300px] relative">
         {isLoading && (
           <div className="absolute inset-0 z-10 bg-white/60 backdrop-blur-[1px] flex items-center justify-center">
@@ -319,6 +303,7 @@ export default function Dashboard() {
             <tr>
               <th className="px-5 py-4 rounded-tl-[20px]">Kategori Dokumen</th>
               <th className="px-5 py-4">Judul</th>
+              <th className="px-5 py-4">Initiator / Author</th>
               <th className="px-5 py-4">No. Dokumen</th>
               <th className="px-5 py-4 text-center">Status</th>
               <th className="px-5 py-4">Diperbarui</th>
@@ -346,6 +331,12 @@ export default function Dashboard() {
                     </div>
                   </td>
                   <td className="px-5 py-4 align-middle">
+                    <div className="flex flex-col items-center justify-center text-center">
+                      <span className="text-sm font-bold text-gray-700" title="Initiator (Disiapkan Oleh)">{doc.creator_name || '-'}</span>
+                      <span className="text-xs text-gray-500 mt-0.5" title="Author (Pengaju)">Diajukan oleh: {doc.author_name || '-'}</span>
+                    </div>
+                  </td>
+                  <td className="px-5 py-4 align-middle">
                     <div className="max-w-[150px] mx-auto whitespace-normal break-words text-center">
                       {doc.document_number || '-'}
                     </div>
@@ -362,8 +353,7 @@ export default function Dashboard() {
                   </td>
                   <td className="px-5 py-4 align-middle">
                     <div className="flex items-center justify-center">
-                      
-                      {/* Container Pil Pembungkus Aksi */}
+
                       <div className="flex items-center gap-1 bg-gray-50 p-1.5 rounded-xl border border-gray-100 shadow-sm transition-all hover:bg-white hover:shadow">
                         
                         <button 
@@ -403,7 +393,7 @@ export default function Dashboard() {
 
                         {(doc.status?.toLowerCase() === 'draft' || doc.status?.toLowerCase() === 'menunggu') && (
                           <>
-                            <div className="w-[1px] h-4 bg-gray-200 mx-1"></div> {/* Garis pemisah */}
+                            <div className="w-[1px] h-4 bg-gray-200 mx-1"></div>
                             <button 
                               onClick={() => handleDelete(doc.document_id)}
                               className="text-gray-500 hover:text-red-600 hover:bg-red-50 p-1.5 rounded-lg transition-colors" 
@@ -430,8 +420,7 @@ export default function Dashboard() {
         {isPreviewOpen && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm px-4 py-8">
             <div className="bg-white w-full max-w-5xl h-full rounded-2xl shadow-2xl flex flex-col overflow-hidden relative">
-              
-              {/* Header Modal */}
+
               <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 bg-gray-50">
                 <h3 className="text-lg font-bold text-[#126863]">Pratinjau Dokumen</h3>
                 <button onClick={closePreview} className="text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg p-1.5 transition-colors">
@@ -439,7 +428,6 @@ export default function Dashboard() {
                 </button>
               </div>
 
-              {/* Body Modal (Iframe PDF) */}
               <div className="flex-1 bg-gray-200 p-2 md:p-4">
                 {isLoadingPreview ? (
                   <div className="w-full h-full flex flex-col items-center justify-center">
@@ -471,8 +459,7 @@ export default function Dashboard() {
             <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl p-8 relative">
               
               <h3 className="text-[22px] font-bold text-[#126863] mb-6">Catatan Revisi Dokumen</h3>
-              
-              {/* PERBAIKAN: Menggunakan Grid 3 Kolom */}
+
               <div className="bg-gray-50 rounded-xl p-4 mb-6 border border-gray-100">
                 <div className="grid grid-cols-[110px_15px_1fr] gap-y-3 text-sm text-gray-700">
                   <div className="font-bold">Kategori</div>

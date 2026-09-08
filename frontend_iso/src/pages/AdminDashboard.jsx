@@ -53,14 +53,13 @@ export default function AdminDashboard() {
     return () => clearInterval(interval);
   }, [fetchFilteredDocuments]);
 
-  // FUNGSI LOCK & REVIEW YANG AMAN
   const handleLockAndReview = async (docId) => {
     try {
       await apiClient.put(`/documents/${docId}/lock`);
       navigate(`/admin/review/${docId}`);
     } catch (error) {
       alert(error.response?.data?.detail || "Gagal! Dokumen ini baru saja diambil oleh admin lain.");
-      fetchFilteredDocuments(false); // Langsung refresh tabel seketika
+      fetchFilteredDocuments(false);
     }
   };
 
@@ -69,7 +68,7 @@ export default function AdminDashboard() {
   };
 
   const handleDownload = async (doc) => {
-    setDownloadingId(doc.document_id); // Aktifkan loading untuk ID ini
+    setDownloadingId(doc.document_id);
     
     try {
       const res = await apiClient.get(`/documents/${doc.document_id}/export`, { responseType: 'blob' });
@@ -131,7 +130,6 @@ export default function AdminDashboard() {
       </div>
 
       <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm space-y-4 mb-4">
-        {/* ... INPUT FILTER TETAP SAMA ... */}
         <div className="relative">
           <span className="absolute inset-y-0 left-4 flex items-center text-gray-400"><Search size={18} strokeWidth={2} /></span>
           <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search by title or category" className="w-full pl-11 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-[#126863] text-gray-700 placeholder-gray-400" />
@@ -197,7 +195,7 @@ export default function AdminDashboard() {
                   <td className="px-5 py-4 text-gray-900 align-middle"><div className="max-w-[180px] lg:max-w-[250px] mx-auto whitespace-normal break-words text-center">{doc.title}</div></td>
                   <td className="px-5 py-4 align-middle">
                     <div className="flex flex-col items-center justify-center max-w-[150px] mx-auto whitespace-normal break-words text-center">
-                      <span className="text-gray-600 font-bold">{doc.creator_name || '-'}</span>
+                      <span className="text-gray-900 font-bold">{doc.author_name || '-'}</span>
                       <span className="text-xs text-gray-500 mt-1">{doc.creator_section || 'Umum'}</span>
                     </div>
                   </td>

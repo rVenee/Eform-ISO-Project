@@ -33,7 +33,8 @@ export default function Login() {
       localStorage.setItem('token', response.data.access_token);
       localStorage.setItem('role', role);
       localStorage.setItem('full_name', response.data.user_info.full_name);
-      
+      localStorage.setItem('section', response.data.user_info.section || 'Umum');
+
       if (role === 'admin_it') {
         navigate('/it-admin');
       } else if (role === 'admin_iso') {
