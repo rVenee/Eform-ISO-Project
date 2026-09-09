@@ -25,7 +25,8 @@ def register_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
         username=user.username,
         password=hashed_password,
         full_name=user.full_name,
-        role=user.role
+        role=user.role,
+        section=user.section
     )
     db.add(new_user)
     db.commit()
@@ -56,7 +57,8 @@ def login(user_credentials: OAuth2PasswordRequestForm = Depends(), db: Session =
         "user_info": {
             "username": user.username,
             "role": user.role,
-            "full_name": user.full_name
+            "full_name": user.full_name,
+            "section": user.section
         }
     }
 

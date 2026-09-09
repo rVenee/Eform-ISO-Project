@@ -64,6 +64,7 @@ class DocumentUpdate(DocumentBase):
 class DocumentResponse(DocumentBase):
     document_id: int
     user_id: int
+    author_name: Optional[str] = None
     created_date: datetime
     updated_date: datetime
     locked_by: Optional[int] = None

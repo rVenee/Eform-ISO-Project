@@ -51,6 +51,10 @@ class Document(Base):
     def creator_section(self):
         return self.owner.section if self.owner and self.owner.section else 'Umum'
 
+    @property
+    def author_name(self):
+        return self.owner.full_name if self.owner else None
+
 class DocumentContent(Base):
     __tablename__ = "DOCUMENTS_CONTENTS"
 

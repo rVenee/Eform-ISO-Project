@@ -65,10 +65,11 @@ def get_all_documents(
     
     # Lapis Keamanan RBAC: Isolasi Data
     if current_user.role != schemas.RoleEnum.admin_iso:
-        # Jika user biasa, HANYA ambil dokumen miliknya
-        query = query.filter(models.Document.user_id == current_user.user_id)
+        # User biasa HANYA melihat dokumen dari SEKSI YANG SAMA
+        query = query.join(models.User, models.Document.user_id == models.User.user_id)\
+                     .filter(models.User.section == current_user.section)
     else:
-        # Jika Admin ISO, ambil semua KECUALI yang masih Draft (belum disubmit user)
+        # Jika Admin ISO, ambil semua KECUALI yang masih Draft
         query = query.filter(models.Document.status != 'Draft')
         
     if category:
