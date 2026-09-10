@@ -12,6 +12,7 @@ export default function MainLayout() {
   
   const userRole = localStorage.getItem('role');
   const isAdmin = userRole === 'admin_iso' || location.pathname.startsWith('/admin');
+  const isHead = ['unit_head', 'division_head', 'qmr_emr', 'mr', 'hrd', 'mill_head'].includes(userRole);
   const [fullName, setFullName] = useState('');
   const [userSection, setUserSection] = useState('');
   
@@ -68,6 +69,8 @@ export default function MainLayout() {
     
     switch(location.pathname) {
       case '/dashboard': return 'Dashboard';
+      case '/head/pending': return 'Perlu Persetujuan';
+      case '/head/all': return 'Semua Dokumen';
       case '/form-wi': return 'Work Instruction';
       case '/qm': return 'Quality Manual';
       case '/sop': return 'Standard Operating Procedure';
@@ -91,7 +94,7 @@ export default function MainLayout() {
           
           {userRole === 'admin_it' ? (
             <>
-              <div className="px-6 mb-3 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Admin IT</div>
+              <div className="px-6 mb-3 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Applicator / Pengaju</div>
               <nav className="space-y-1 mb-8">
                 <Link to="/it-admin" className={`flex items-center gap-3 py-2.5 text-sm ${isActive('/it-admin')}`}>
                   <LayoutGrid size={18} strokeWidth={2.5} /> Manajemen Pengguna
@@ -107,6 +110,20 @@ export default function MainLayout() {
                 </Link>
               </nav>
             </>
+          
+          ) : isHead ? (
+            <>
+              <div className="px-6 mb-3 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Menu Pimpinan</div>
+              <nav className="space-y-1 mb-8">
+                <Link to="/head/pending" className={`flex items-center gap-3 py-2.5 text-sm ${isActive('/head/pending')}`}>
+                  <ClipboardCheck size={18} strokeWidth={2.5} /> Perlu Persetujuan
+                </Link>
+                <Link to="/head/all" className={`flex items-center gap-3 py-2.5 text-sm ${isActive('/head/all')}`}>
+                  <FolderClosed size={18} strokeWidth={2.5} /> Semua Dokumen
+                </Link>
+              </nav>
+            </>
+
           ) : (
             <>
               <div className="px-6 mb-3 text-[10px] font-bold text-gray-400 uppercase tracking-widest">User</div>

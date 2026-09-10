@@ -10,7 +10,8 @@ import ReviewDokumen from './pages/ReviewDokumen';
 import FormQM from './pages/FormQM';
 import FormSOP from './pages/FormSOP';
 import FormFM from './pages/FormFM';
-import HelpSupport from './pages/HelpSupport'; // Tambahkan import ini
+import HelpSupport from './pages/HelpSupport';
+import HeadDashboard from './pages/HeadDashboard';
 
 // Cek apakah user sudah login
 const ProtectedRoute = ({ children }) => {
@@ -53,6 +54,10 @@ function App() {
           {/* Rute Help & Support (User Biasa) */}
           <Route path="/help/contact" element={<HelpSupport />} />
           
+          {/* Rute Khusus Pimpinan (Head) */}
+          <Route path="/head/pending" element={<HeadDashboard mode="pending" />} />
+          <Route path="/head/all" element={<HeadDashboard mode="all" />} />
+
           {/* Rute Khusus Admin (Dilindungi AdminRoute) */}
           <Route path="/admin" element={
             <AdminRoute>

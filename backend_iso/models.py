@@ -11,7 +11,7 @@ class User(Base):
     password = Column(String(255), nullable=False)
     full_name = Column(String(100), nullable=False)
     section = Column(String(100), nullable=True)
-    role = Column(Enum('admin_iso', 'user', 'admin_it'), nullable=False)
+    role = Column(Enum('admin_iso', 'admin_it', 'applicator', 'unit_head', 'division_head', 'qmr_emr', 'mr', 'hrd', 'mill_head'), nullable=False)
 
     documents = relationship("Document", back_populates="owner", foreign_keys="[Document.user_id]")
     revisions = relationship("RevisionLog", back_populates="reviewer", cascade="all, delete-orphan")
@@ -24,12 +24,23 @@ class Document(Base):
     creator_name = Column(String(100), nullable=True)
     checked_by = Column(String(100), nullable=True)
     approved_by = Column(String(100), nullable=True)
-    category = Column(Enum('WI', 'SOP', 'QM', 'FM_FR', 'NCR', 'DOP', 'JB', 'TM'), nullable=False)
+    category = Column(Enum('WI', 'DOP', 'SOP', 'EII', 'JB', 'QMS', 'TM', 'EMS', 'CM', 'QMS_SP'), nullable=False)
     title = Column(String(255), nullable=False)
     document_number = Column(String(100), nullable=True)
     revision_number = Column(String(50), nullable=True)
     effective_date = Column(Date, nullable=True)
-    status = Column(Enum('Draft', 'Menunggu', 'Direview', 'Disetujui', 'Direvisi'), default='Draft')
+    status = Column(Enum(
+        'Draft', 
+        'Menunggu Unit Head', 
+        'Menunggu Division Head', 
+        'Menunggu ISO', 
+        'Menunggu QMR', 
+        'Menunggu MR', 
+        'Menunggu HRD', 
+        'Menunggu Mill Head', 
+        'Direvisi', 
+        'Disetujui'
+    ), default='Draft')
     locked_by = Column(Integer, ForeignKey("USERS.user_id", ondelete="SET NULL"), nullable=True)
     created_date = Column(TIMESTAMP, server_default=func.now())
     updated_date = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now())

@@ -5,7 +5,7 @@ CREATE TABLE USERS (
     password VARCHAR(255) NOT NULL,
     full_name VARCHAR(100) NOT NULL,
     section VARCHAR(100) NULL,
-    role ENUM('admin_iso', 'user', 'admin_it') NOT NULL
+    role ENUM('admin_iso', 'admin_it', 'applicator', 'unit_head', 'division_head', 'qmr_emr', 'mr', 'hrd', 'mill_head') NOT NULL
 );
 
 -- 2. Tabel DOCUMENTS
@@ -15,7 +15,7 @@ CREATE TABLE DOCUMENTS (
     creator_name VARCHAR(100) NULL, 
     checked_by VARCHAR(100) NULL,   
     approved_by VARCHAR(100) NULL,  
-    category ENUM('WI', 'SOP', 'QM', 'FM_FR', 'NCR', 'DOP', 'JB', 'TM') NOT NULL,
+    category ENUM('WI', 'DOP', 'SOP', 'EII', 'JB', 'QMS', 'TM', 'EMS', 'CM', 'QMS_SP') NOT NULL,
     title VARCHAR(255) NOT NULL,
     document_number VARCHAR(100) NULL,
     revision_number VARCHAR(50) NULL,
@@ -23,7 +23,8 @@ CREATE TABLE DOCUMENTS (
     prepared_date DATE NULL,
     checked_date DATE NULL,
     approved_date DATE NULL,
-    status ENUM('Draft', 'Menunggu', 'Direview', 'Disetujui', 'Direvisi') DEFAULT 'Draft',
+    status ENUM('Draft', 'Menunggu Unit Head', 'Menunggu Division Head', 'Menunggu ISO', 'Menunggu QMR', 'Menunggu MR', 'Menunggu HRD', 'Menunggu Mill Head', 'Direvisi', 'Disetujui') DEFAULT 'Draft',
+    locked_by INT NULL,
     locked_by INT NULL,
     created_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,

@@ -5,8 +5,14 @@ from enum import Enum
 
 class RoleEnum(str, Enum):
     admin_iso = "admin_iso"
-    user = "user"
     admin_it = "admin_it"
+    applicator = "applicator"
+    unit_head = "unit_head"
+    division_head = "division_head"
+    qmr_emr = "qmr_emr"
+    mr = "mr"
+    hrd = "hrd"
+    mill_head = "mill_head"
 
 # ========================================
 # SCHEMAS UNTUK AUTHENTICATION

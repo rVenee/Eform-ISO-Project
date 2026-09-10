@@ -23,6 +23,16 @@ BASE_URL = os.getenv("BASE_URL", "http://127.0.0.1:8000")
 # Inisialisasi router untuk dokumen
 router = APIRouter(prefix="/documents", tags=["Documents"])
 
+# Fungsi Helper untuk Menentukan Rute Awal Dokumen
+def determine_initial_status(category: str) -> str:
+    if category in ['WI', 'JB', 'QMS', 'TM', 'EMS', 'CM', 'QMS_SP']:
+        return "Menunggu Unit Head"
+    elif category in ['DOP', 'EII']:
+        return "Menunggu Division Head"
+    elif category == 'SOP':
+        return "Menunggu ISO"
+    return "Menunggu ISO"
+
 # 1. Endpoint untuk Membuat Dokumen Baru (Create)
 @router.post("/", response_model=schemas.DocumentResponse, status_code=status.HTTP_201_CREATED)
 def create_document(
@@ -30,6 +40,11 @@ def create_document(
     db: Session = Depends(get_db), 
     current_user: models.User = Depends(get_current_user)
 ):
+    # CEGAT LOGIKA ROUTING DI SINI
+    incoming_status = doc.status if doc.status else "Draft"
+    if incoming_status == "Menunggu":
+        incoming_status = determine_initial_status(doc.category)
+
     new_document = models.Document(
         category=doc.category,
         title=doc.title,
@@ -40,8 +55,8 @@ def create_document(
         revision_number=doc.revision_number,
         effective_date=doc.effective_date,
         prepared_date=date.today(),
-        user_id=current_user.user_id, # Otomatis terikat ke user yang sedang login
-        status=doc.status if doc.status else "Draft"
+        user_id=current_user.user_id,
+        status=incoming_status # Gunakan status yang sudah dicegat
     )
     
     db.add(new_document)
@@ -63,21 +78,43 @@ def get_all_documents(
 ):
     query = db.query(models.Document)
     
-    # Lapis Keamanan RBAC: Isolasi Data
-    if current_user.role != schemas.RoleEnum.admin_iso:
-        # User biasa HANYA melihat dokumen dari SEKSI YANG SAMA
-        query = query.join(models.User, models.Document.user_id == models.User.user_id)\
-                     .filter(models.User.section == current_user.section)
-    else:
-        # Jika Admin ISO, ambil semua KECUALI yang masih Draft
+    # --- LAPIS KEAMANAN RBAC (VISIBILITAS DATA) ---
+    if current_user.role == schemas.RoleEnum.admin_iso:
+        # Admin ISO melihat semua dokumen KECUALI yang masih Draft
         query = query.filter(models.Document.status != 'Draft')
         
+    elif current_user.role in [
+        schemas.RoleEnum.division_head, 
+        schemas.RoleEnum.qmr_emr, 
+        schemas.RoleEnum.mr, 
+        schemas.RoleEnum.hrd, 
+        schemas.RoleEnum.mill_head
+    ]:
+        # Pimpinan Atas melihat: Dokumen dari seksinya SENDIRI + Dokumen yang MENUNGGU persetujuannya
+        status_target = {
+            "division_head": "Menunggu Division Head",
+            "qmr_emr": "Menunggu QMR",
+            "mr": "Menunggu MR",
+            "hrd": "Menunggu HRD",
+            "mill_head": "Menunggu Mill Head"
+        }.get(current_user.role)
+        
+        query = query.join(models.User, models.Document.user_id == models.User.user_id).filter(
+            or_(
+                models.User.section == current_user.section,
+                models.Document.status == status_target
+            )
+        )
+    else:
+        # Applicator & Unit Head HANYA melihat dokumen dari SEKSI YANG SAMA
+        query = query.join(models.User, models.Document.user_id == models.User.user_id)\
+                     .filter(models.User.section == current_user.section)
+                     
+    # --- APLIKASI FILTER ---
     if category:
         query = query.filter(models.Document.category == category)
-        
     if status:
         query = query.filter(models.Document.status == status)
-        
     if search:
         query = query.filter(
             or_(
@@ -85,7 +122,6 @@ def get_all_documents(
                 models.Document.document_number.ilike(f"%{search}%")
             )
         )
-
     if start_date:
         query = query.filter(models.Document.created_date >= start_date)
     if end_date:
@@ -108,8 +144,13 @@ def update_document(
     if document is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dokumen tidak ditemukan")
         
-    # Hanya ambil data yang benar-benar dikirim/diisi oleh user (agar tidak error 422)
     update_data = doc_update.model_dump(exclude_unset=True)
+    
+    # CEGAT LOGIKA ROUTING SAAT UPDATE DARI DRAFT KE SUBMIT
+    if update_data.get('status') == "Menunggu":
+        # Ambil kategori dari update_data jika diubah, atau dari database jika tetap
+        cat = update_data.get('category', document.category)
+        update_data['status'] = determine_initial_status(cat)
     
     document_query.update(update_data, synchronize_session=False)
     db.commit()
@@ -484,4 +525,95 @@ def unlock_document(
         db.commit()
         db.refresh(document)
         
+    return document
+
+# 13. Endpoint untuk Persetujuan Pimpinan (Approve Workflow Engine)
+@router.put("/{document_id}/approve", response_model=schemas.DocumentResponse)
+def approve_document_by_leader(
+    document_id: int, 
+    db: Session = Depends(get_db), 
+    current_user: models.User = Depends(get_current_user)
+):
+    document = db.query(models.Document).filter(models.Document.document_id == document_id).first()
+    if not document:
+        raise HTTPException(status_code=404, detail="Dokumen tidak ditemukan")
+
+    # --- ENGINE ROUTING BERDASARKAN ROLE & STATUS ---
+    
+    # A. Jika yang klik adalah UNIT HEAD
+    if document.status == "Menunggu Unit Head" and current_user.role == "unit_head":
+        document.checked_by = current_user.full_name
+        document.checked_date = date.today()
+        # Setelah Unit Head ACC, dokumen diteruskan ke Unit ISO untuk format & penomoran
+        document.status = "Menunggu ISO"
+        
+    # B. Jika yang klik adalah DIVISION HEAD
+    elif document.status == "Menunggu Division Head" and current_user.role == "division_head":
+        document.approved_by = current_user.full_name
+        document.approved_date = date.today()
+        
+        # Penentuan Destinasi berdasarkan Kategori Dokumen
+        if document.category in ['WI', 'DOP', 'TM', 'CM', 'QMS_SP']:
+            document.status = "Disetujui" # Div Head adalah approver terakhir
+        elif document.category == 'JB':
+            document.status = "Menunggu HRD"
+        elif document.category in ['EII', 'EMS']:
+            document.status = "Menunggu MR"
+        else:
+            document.status = "Disetujui" # Fallback
+            
+    # C. Jika yang klik adalah QMR / EMR
+    elif document.status == "Menunggu QMR" and current_user.role == "qmr_emr":
+        document.checked_by = current_user.full_name # Bertindak sebagai pemeriksa
+        document.checked_date = date.today()
+        document.status = "Menunggu MR"
+
+    # D. Jika yang klik adalah MR (Management Representative)
+    elif document.status == "Menunggu MR" and current_user.role == "mr":
+        document.approved_by = current_user.full_name
+        document.approved_date = date.today()
+        document.status = "Disetujui"
+
+    # E. Jika yang klik adalah MILL HEAD
+    elif document.status == "Menunggu Mill Head" and current_user.role == "mill_head":
+        document.approved_by = current_user.full_name
+        document.approved_date = date.today()
+        document.status = "Disetujui"
+        
+    else:
+        raise HTTPException(status_code=403, detail="Akses ditolak. Dokumen ini tidak sedang berada di antrean persetujuan Anda.")
+
+    db.commit()
+    db.refresh(document)
+    return document
+
+
+# 14. Endpoint untuk Penolakan Pimpinan (Reject / Kembalikan ke Revisi)
+@router.put("/{document_id}/reject", response_model=schemas.DocumentResponse)
+def reject_document_by_leader(
+    document_id: int, 
+    review_data: schemas.DocumentReview, # Memanfaatkan schema review yang sama dengan ISO
+    db: Session = Depends(get_db), 
+    current_user: models.User = Depends(get_current_user)
+):
+    document = db.query(models.Document).filter(models.Document.document_id == document_id).first()
+    if not document:
+        raise HTTPException(status_code=404, detail="Dokumen tidak ditemukan")
+
+    if not review_data.notes:
+        raise HTTPException(status_code=400, detail="Catatan penolakan (notes) wajib diisi!")
+
+    # Kembalikan ke status Direvisi agar Applicator bisa memperbaiki
+    document.status = "Direvisi"
+    
+    # Catat alasan penolakan di tabel REVISION_LOGS
+    new_log = models.RevisionLog(
+        document_id=document_id,
+        reviewer_id=current_user.user_id,
+        notes=f"[{current_user.role.upper()}] " + review_data.notes
+    )
+    db.add(new_log)
+    db.commit()
+    db.refresh(document)
+    
     return document

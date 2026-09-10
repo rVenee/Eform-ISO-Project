@@ -35,12 +35,16 @@ export default function Login() {
       localStorage.setItem('full_name', response.data.user_info.full_name);
       localStorage.setItem('section', response.data.user_info.section || 'Umum');
 
+      const isHead = ['unit_head', 'division_head', 'qmr_emr', 'mr', 'hrd', 'mill_head'].includes(role);
+
       if (role === 'admin_it') {
         navigate('/it-admin');
       } else if (role === 'admin_iso') {
         navigate('/admin');
+      } else if (isHead) {
+        navigate('/head/pending'); // Pimpinan langsung dilempar ke sini
       } else {
-        navigate('/dashboard');
+        navigate('/dashboard'); // Applicator tetap ke sini
       }
     } catch (err) {
       setError(err.response?.data?.detail || 'Username atau password tidak valid.');

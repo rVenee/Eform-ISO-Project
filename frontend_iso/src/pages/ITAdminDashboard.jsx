@@ -17,7 +17,7 @@ export default function ITAdminDashboard() {
     username: '',
     full_name: '',
     section: '',
-    role: 'user',
+    role: 'applicator',
     password: ''
   });
 
@@ -41,7 +41,7 @@ export default function ITAdminDashboard() {
     setModalMode(mode);
     setSelectedUser(user);
     if (mode === 'add') {
-      setFormData({ username: '', full_name: '', section: '', role: 'user', password: '' });
+      setFormData({ username: '', full_name: '', section: '', role: 'applicator', password: '' });
     } else if (mode === 'edit' || mode === 'reset') {
       setFormData({ 
         username: user.username, 
@@ -96,6 +96,21 @@ export default function ITAdminDashboard() {
     return matchesSearch && matchesRole;
   });
 
+  const getRoleLabel = (role) => {
+    const labels = {
+      admin_iso: 'Unit ISO',
+      admin_it: 'Admin IT',
+      unit_head: 'Unit Head',
+      division_head: 'Div Head',
+      qmr_emr: 'QMR / EMR',
+      mr: 'MR',
+      hrd: 'HRD',
+      mill_head: 'Mill Head',
+      applicator: 'Applicator'
+    };
+    return labels[role] || 'Applicator';
+  };
+
   return (
     <div className="max-w-7xl mx-auto h-[calc(100vh-100px)] flex flex-col">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6 shrink-0">
@@ -120,13 +135,13 @@ export default function ITAdminDashboard() {
         </div>
         
         <div className="flex bg-white border border-gray-200 p-1 rounded-xl shrink-0 shadow-sm">
-          {['all', 'admin_iso', 'user'].map((role) => (
+          {['all', 'admin_iso', 'applicator'].map((role) => (
             <button
               key={role}
               onClick={() => setRoleFilter(role)}
               className={`px-5 py-2 text-sm font-bold rounded-lg transition-colors ${roleFilter === role ? 'bg-[#126863] text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
             >
-              {role === 'all' ? 'Semua Role' : role === 'admin_iso' ? 'Unit ISO' : 'User'}
+              {role === 'all' ? 'Semua Role' : role === 'admin_iso' ? 'Unit ISO' : 'Applicator'}
             </button>
           ))}
         </div>
@@ -164,13 +179,18 @@ export default function ITAdminDashboard() {
                     <td className="px-6 py-3.5 text-sm text-gray-600 text-center align-middle">{user.section || '-'}</td>
                     <td className="px-6 py-3.5 align-middle">
                       <div className="flex justify-center">
-                        <div className={`flex items-center justify-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold w-28 whitespace-nowrap ${
+                        <div className={`flex items-center justify-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold w-32 whitespace-nowrap ${
                           user.role === 'admin_iso' ? 'bg-teal-50 text-[#126863] border border-teal-100' : 
                           user.role === 'admin_it' ? 'bg-gray-800 text-white border border-gray-900' :
+                          (user.role !== 'applicator' && user.role !== 'user') ? 'bg-blue-50 text-blue-700 border border-blue-200' :
                           'bg-gray-100 text-gray-600 border border-gray-200'
                         }`}>
-                          {user.role === 'admin_iso' ? <ShieldCheck size={14} className="shrink-0" /> : <UserIcon size={14} className="shrink-0" />}
-                          <span>{user.role === 'admin_iso' ? 'Unit ISO' : user.role === 'admin_it' ? 'Admin IT' : 'User'}</span>
+                          {user.role === 'admin_iso' ? (
+                            <ShieldCheck size={14} className="shrink-0" />
+                          ) : (
+                            <UserIcon size={14} className="shrink-0" />
+                          )}
+                          <span>{getRoleLabel(user.role)}</span>
                         </div>
                       </div>
                     </td>
@@ -252,9 +272,15 @@ export default function ITAdminDashboard() {
                     <input type="text" value={formData.section} onChange={(e) => setFormData({...formData, section: e.target.value})} placeholder="Contoh: Produksi - PM1" className="w-full px-4 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#126863]/50 outline-none" />
                   </div>
                   <div>
-                    <label className="block text-xs font-bold text-gray-600 mb-1.5">Role</label>
+                    <label className="block text-xs font-bold text-gray-600 mb-1.5">Role / Jabatan</label>
                     <select value={formData.role} onChange={(e) => setFormData({...formData, role: e.target.value})} className="w-full px-4 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#126863]/50 outline-none bg-white">
-                      <option value="user">User Biasa</option>
+                      <option value="applicator">Applicator (Pengaju)</option>
+                      <option value="unit_head">Unit Head</option>
+                      <option value="division_head">Division Head</option>
+                      <option value="qmr_emr">QMR / EMR</option>
+                      <option value="mr">Management Representative</option>
+                      <option value="hrd">HRD</option>
+                      <option value="mill_head">Mill Head</option>
                       <option value="admin_iso">Unit ISO (Admin)</option>
                     </select>
                   </div>
