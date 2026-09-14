@@ -12,9 +12,10 @@ export default function MainLayout() {
   
   const userRole = localStorage.getItem('role');
   const isAdmin = userRole === 'admin_iso' || location.pathname.startsWith('/admin');
-  const isHead = ['unit_head', 'division_head', 'qmr_emr', 'mr', 'hrd', 'mill_head'].includes(userRole);
+  const isHead = ['unit_head', 'division_head', 'qmr', 'emr', 'enmr', 'smr', 'kahi', 'mr', 'hrd', 'mill_head'].includes(userRole);
   const [fullName, setFullName] = useState('');
   const [userSection, setUserSection] = useState('');
+  const [userDivision, setUserDivision] = useState('');
   
   const [isHelpOpen, setIsHelpOpen] = useState(false);
 
@@ -23,10 +24,12 @@ export default function MainLayout() {
 
   useEffect(() => {
     const storedName = localStorage.getItem('full_name') || 'User IKPP';
-    const storedSection = localStorage.getItem('section') || 'Umum';
+    const storedSection = localStorage.getItem('section') || '';
+    const storedDivision = localStorage.getItem('division') || '';
 
     setFullName(storedName);
     setUserSection(storedSection);
+    setUserDivision(storedDivision);
     
     // Otomatis buka dropdown jika sedang berada di halaman Help
     if (location.pathname.includes('/help')) {
@@ -94,7 +97,7 @@ export default function MainLayout() {
           
           {userRole === 'admin_it' ? (
             <>
-              <div className="px-6 mb-3 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Applicator / Pengaju</div>
+              <div className="px-6 mb-3 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Admin IT</div>
               <nav className="space-y-1 mb-8">
                 <Link to="/it-admin" className={`flex items-center gap-3 py-2.5 text-sm ${isActive('/it-admin')}`}>
                   <LayoutGrid size={18} strokeWidth={2.5} /> Manajemen Pengguna
@@ -207,8 +210,8 @@ export default function MainLayout() {
           <p className="text-sm font-bold text-gray-700 text-center truncate px-2 w-full" title={fullName}>
             {fullName}
           </p>
-          <p className="text-[11px] font-medium text-gray-400 text-center truncate px-2 w-full mt-0.5" title={userSection}>
-            {userSection}
+          <p className="text-[11px] font-medium text-gray-400 text-center truncate px-2 w-full mt-0.5">
+            {userSection || userDivision || 'Umum'}
           </p>
         </div>
       </aside>

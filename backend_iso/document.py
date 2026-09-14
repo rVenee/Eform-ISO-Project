@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from database import get_db
 from typing import Optional
 from datetime import date
-from sqlalchemy import or_
+from sqlalchemy import or_, and_
 from fastapi.responses import FileResponse
 from docxtpl import DocxTemplate, InlineImage
 from docx.shared import Mm
@@ -17,13 +17,21 @@ import pythoncom
 import json
 
 load_dotenv()
-# Ambil dari .env
 BASE_URL = os.getenv("BASE_URL", "http://127.0.0.1:8000")
 
-# Inisialisasi router untuk dokumen
 router = APIRouter(prefix="/documents", tags=["Documents"])
 
-# Fungsi Helper untuk Menentukan Rute Awal Dokumen
+# Label status resmi untuk role Pimpinan Spesialis (dipakai di visibility filter & approve engine
+# supaya string status selalu konsisten di seluruh file)
+ROLE_STATUS_LABEL = {
+    "qmr": "QMR",
+    "emr": "EMR",
+    "enmr": "EnMR",
+    "smr": "SMR",
+    "kahi": "KAHI",
+    "mr": "MR",
+}
+
 def determine_initial_status(category: str) -> str:
     if category in ['WI', 'JB', 'QMS', 'TM', 'EMS', 'CM', 'QMS_SP']:
         return "Menunggu Unit Head"
@@ -40,7 +48,6 @@ def create_document(
     db: Session = Depends(get_db), 
     current_user: models.User = Depends(get_current_user)
 ):
-    # CEGAT LOGIKA ROUTING DI SINI
     incoming_status = doc.status if doc.status else "Draft"
     if incoming_status == "Menunggu":
         incoming_status = determine_initial_status(doc.category)
@@ -56,7 +63,7 @@ def create_document(
         effective_date=doc.effective_date,
         prepared_date=date.today(),
         user_id=current_user.user_id,
-        status=incoming_status # Gunakan status yang sudah dicegat
+        status=incoming_status
     )
     
     db.add(new_document)
@@ -79,34 +86,63 @@ def get_all_documents(
     query = db.query(models.Document)
     
     # --- LAPIS KEAMANAN RBAC (VISIBILITAS DATA) ---
+    
     if current_user.role == schemas.RoleEnum.admin_iso:
-        # Admin ISO melihat semua dokumen KECUALI yang masih Draft
         query = query.filter(models.Document.status != 'Draft')
         
-    elif current_user.role in [
-        schemas.RoleEnum.division_head, 
-        schemas.RoleEnum.qmr_emr, 
-        schemas.RoleEnum.mr, 
-        schemas.RoleEnum.hrd, 
-        schemas.RoleEnum.mill_head
-    ]:
-        # Pimpinan Atas melihat: Dokumen dari seksinya SENDIRI + Dokumen yang MENUNGGU persetujuannya
-        status_target = {
-            "division_head": "Menunggu Division Head",
-            "qmr_emr": "Menunggu QMR",
-            "mr": "Menunggu MR",
-            "hrd": "Menunggu HRD",
-            "mill_head": "Menunggu Mill Head"
-        }.get(current_user.role)
-        
+    elif current_user.role == schemas.RoleEnum.division_head:
         query = query.join(models.User, models.Document.user_id == models.User.user_id).filter(
+            models.User.division == current_user.division
+        ).filter(models.Document.status.notin_(['Draft', 'Menunggu Unit Head']))
+
+    # 1. Blok Pimpinan Spesialis (QMR/EMR/EnMR/SMR/KAHI/MR) — TANPA Mill Head
+    elif current_user.role in [
+        schemas.RoleEnum.qmr, schemas.RoleEnum.emr, schemas.RoleEnum.enmr,
+        schemas.RoleEnum.smr, schemas.RoleEnum.kahi, schemas.RoleEnum.mr
+    ]:
+        role_categories = {
+            "qmr": ["QM", "SOP", "WI", "FM_FR"],
+            "emr": ["EMS"],
+            "enmr": ["EII"],
+            "smr": ["DOP", "JB"],
+            "kahi": ["TM"],
+            "mr": ["QM", "SOP", "WI", "FM_FR", "EMS", "EII"],
+        }
+        target_categories = role_categories.get(current_user.role.value, [])
+        status_target = f"Menunggu {ROLE_STATUS_LABEL.get(current_user.role.value, current_user.role.value)}"
+
+        query = query.filter(
             or_(
-                models.User.section == current_user.section,
+                models.Document.category.in_(target_categories),
                 models.Document.status == status_target
             )
-        )
-    else:
-        # Applicator & Unit Head HANYA melihat dokumen dari SEKSI YANG SAMA
+        ).filter(models.Document.status != 'Draft')
+
+    # 2. Blok Mill Head — terpisah, dibatasi divisi (MHO / MHO P)
+    elif current_user.role == schemas.RoleEnum.mill_head:
+        query = query.join(models.User, models.Document.user_id == models.User.user_id).filter(
+            models.User.division == current_user.division,
+            or_(
+                models.Document.category == "QMS",
+                models.Document.status == "Menunggu Mill Head"
+            )
+        ).filter(models.Document.status != 'Draft')
+
+    elif current_user.role == schemas.RoleEnum.unit_head:
+        query = query.join(models.User, models.Document.user_id == models.User.user_id).filter(
+            and_(models.User.section == current_user.section, models.User.division == current_user.division)
+        ).filter(models.Document.status != 'Draft')
+        
+    elif current_user.role == schemas.RoleEnum.hrd:
+        query = query.join(models.User, models.Document.user_id == models.User.user_id).filter(
+            or_(
+                models.User.division == current_user.division,
+                models.Document.category == "JB",
+                models.Document.status == "Menunggu HRD"
+            )
+        ).filter(models.Document.status != 'Draft')
+        
+    else: # Applicator
         query = query.join(models.User, models.Document.user_id == models.User.user_id)\
                      .filter(models.User.section == current_user.section)
                      
@@ -146,9 +182,7 @@ def update_document(
         
     update_data = doc_update.model_dump(exclude_unset=True)
     
-    # CEGAT LOGIKA ROUTING SAAT UPDATE DARI DRAFT KE SUBMIT
     if update_data.get('status') == "Menunggu":
-        # Ambil kategori dari update_data jika diubah, atau dari database jika tetap
         cat = update_data.get('category', document.category)
         update_data['status'] = determine_initial_status(cat)
     
@@ -190,8 +224,6 @@ def save_document_content(
     existing_content = db.query(models.DocumentContent).filter(models.DocumentContent.document_id == document_id).first()
     
     if existing_content:
-        # WORKAROUND: SQLAlchemy tidak mendeteksi perubahan in-place pada kolom JSON
-        # (mutable tracking gagal), jadi update dipaksa lewat query eksplisit.
         db.query(models.DocumentContent).filter(models.DocumentContent.document_id == document_id).update(
             {"form_data": content.form_data}, synchronize_session=False
         )
@@ -239,7 +271,6 @@ def upload_attachment(
     if not document:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dokumen tidak ditemukan")
         
-    # Bersihkan nama file dari spasi agar URL aman
     safe_filename = file.filename.replace(" ", "_")
     file_name = f"doc{document_id}_{safe_filename}"
     file_path = f"uploads/{file_name}"
@@ -249,7 +280,6 @@ def upload_attachment(
 
     file_url = f"{BASE_URL}/uploads/{file_name}"
     
-    # Simpan rekam jejak ke database (Tabel DOCUMENTS_ATTACHMENTS)
     new_attachment = models.DocumentAttachment(
         document_id=document_id,
         subchapter_reference=subchapter_reference,
@@ -288,7 +318,6 @@ def review_document(
         if not review_data.notes:
             raise HTTPException(status_code=400, detail="Catatan revisi wajib diisi jika dokumen ditolak")
             
-        # Simpan jejak catatan penolakan ke tabel REVISION_LOGS
         new_log = models.RevisionLog(
             document_id=document_id,
             reviewer_id=current_user.user_id,
@@ -340,7 +369,6 @@ def export_document_pdf(
         
         context = {}
         
-        # 1. MAPPING METADATA DOKUMEN
         context["judul_instruksi"] = document.title if document.title else "-"
         context["nomor_dokumen"] = document.document_number if document.document_number else "-"
         context["nomor_revisi"] = document.revision_number if document.revision_number else "-"
@@ -354,11 +382,9 @@ def export_document_pdf(
         context["tanggal_diperiksa"] = document.checked_date.strftime("%d-%m-%Y") if document.checked_date else "-"
         context["tanggal_disetujui"] = document.approved_date.strftime("%d-%m-%Y") if document.approved_date else "-"
         
-        # 2. MAPPING TEXT DASAR
         context["tujuan_instruksi"] = raw_context.get("tujuan", "-")
         context["ruang_lingkup_instruksi"] = raw_context.get("ruang_lingkup", "-")
 
-        # 3. MAPPING LANGKAH KERJA
         langkah_kerja_formatted = []
         for i, langkah in enumerate(raw_context.get("langkah_kerja", [])):
             bagian = {
@@ -374,7 +400,6 @@ def export_document_pdf(
             langkah_kerja_formatted.append(bagian)
         context["langkah_kerja"] = langkah_kerja_formatted
 
-        # 4. MAPPING KESEHATAN & KESELAMATAN
         poin_kesehatan = []
         for i, item in enumerate(raw_context.get("kesehatan_kerja", [])):
             poin_kesehatan.append({
@@ -391,7 +416,6 @@ def export_document_pdf(
             })
         context["poin_keselamatan"] = poin_keselamatan
 
-        # 5. MAPPING DOKUMEN TERKAIT
         dokumen_terkait_formatted = []
         for i, doc in enumerate(raw_context.get("dokumen_terkait", [])):
             dokumen_terkait_formatted.append({
@@ -401,18 +425,14 @@ def export_document_pdf(
             })
         context["dokumen_terkait"] = dokumen_terkait_formatted
 
-        # 6. INISIALISASI TEMPLATE
         template_path = "templates/template_wi.docx"
         doc = DocxTemplate(template_path)
         
-        # 7. MAPPING LAMPIRAN & GAMBAR DINAMIS
         lampiran_data = raw_context.get("lampiran", [])
         if not lampiran_data or len(lampiran_data) == 0:
-            # Jika kosong, kirim teks N/A dan kosongkan daftar_lampiran
             context["teks_lampiran"] = "- N/A"
             context["daftar_lampiran"] = [] 
         else:
-            # Jika ada isinya, kosongkan teks N/A dan proses gambarnya
             context["teks_lampiran"] = ""
             daftar_lampiran_formatted = []
             for i, lamp in enumerate(lampiran_data):
@@ -438,14 +458,12 @@ def export_document_pdf(
                 daftar_lampiran_formatted.append(lamp_item)
             context["daftar_lampiran"] = daftar_lampiran_formatted
 
-        # 8. RENDER & SIMPAN
         doc.render(context)
         temp_docx_name = f"doc_{document_id}_temp.docx"
         temp_docx_path = f"uploads/{temp_docx_name}"
         doc.save(temp_docx_path)
 
     else:
-        # LOGIKA DOKUMEN OTHERS / MANUAL UPLOAD
         attachment = db.query(models.DocumentAttachment).filter(
             models.DocumentAttachment.document_id == document_id,
             models.DocumentAttachment.subchapter_reference == 'Attachment_Utama_Others'
@@ -460,7 +478,6 @@ def export_document_pdf(
             
         temp_docx_path = local_docx_path
 
-    # KONVERSI PDF UNTUK KEDUANYA
     final_pdf_name = f"doc_{document_id}_final.pdf"
     final_pdf_path = f"uploads/{final_pdf_name}"
     
@@ -493,7 +510,6 @@ def lock_document(
     if not document:
         raise HTTPException(status_code=404, detail="Dokumen tidak ditemukan")
 
-    # Jika lolos masuk tetapi ternyata dokumen baru saja dikunci admin lain sepersekian detik yang lalu
     if document.status == "Direview" and document.locked_by and document.locked_by != current_user.user_id:
         raise HTTPException(status_code=400, detail="Gagal! Dokumen baru saja diambil oleh admin lain.")
 
@@ -516,7 +532,6 @@ def unlock_document(
     if not document:
         raise HTTPException(status_code=404, detail="Dokumen tidak ditemukan")
 
-    # HANYA pemegang kunci yang berhak melepas kunci!
     if document.locked_by == current_user.user_id:
         if document.status == "Direview":
             document.status = "Menunggu"
@@ -540,42 +555,45 @@ def approve_document_by_leader(
 
     # --- ENGINE ROUTING BERDASARKAN ROLE & STATUS ---
     
-    # A. Jika yang klik adalah UNIT HEAD
+    # A. UNIT HEAD
     if document.status == "Menunggu Unit Head" and current_user.role == "unit_head":
         document.checked_by = current_user.full_name
         document.checked_date = date.today()
-        # Setelah Unit Head ACC, dokumen diteruskan ke Unit ISO untuk format & penomoran
         document.status = "Menunggu ISO"
         
-    # B. Jika yang klik adalah DIVISION HEAD
+    # B. DIVISION HEAD
     elif document.status == "Menunggu Division Head" and current_user.role == "division_head":
         document.approved_by = current_user.full_name
         document.approved_date = date.today()
         
-        # Penentuan Destinasi berdasarkan Kategori Dokumen
         if document.category in ['WI', 'DOP', 'TM', 'CM', 'QMS_SP']:
-            document.status = "Disetujui" # Div Head adalah approver terakhir
+            document.status = "Disetujui"
+        elif document.category == 'QMS':
+            document.status = "Menunggu Mill Head"
         elif document.category == 'JB':
             document.status = "Menunggu HRD"
         elif document.category in ['EII', 'EMS']:
             document.status = "Menunggu MR"
         else:
-            document.status = "Disetujui" # Fallback
+            document.status = "Disetujui"
             
-    # C. Jika yang klik adalah QMR / EMR
-    elif document.status == "Menunggu QMR" and current_user.role == "qmr_emr":
-        document.checked_by = current_user.full_name # Bertindak sebagai pemeriksa
+    # C. QMR / EMR / EnMR / SMR / KAHI
+    elif current_user.role in ROLE_STATUS_LABEL and document.status == f"Menunggu {ROLE_STATUS_LABEL[current_user.role]}" and current_user.role != "mr":
+        document.checked_by = current_user.full_name
         document.checked_date = date.today()
         document.status = "Menunggu MR"
 
-    # D. Jika yang klik adalah MR (Management Representative)
+    # D. MR (Management Representative)
     elif document.status == "Menunggu MR" and current_user.role == "mr":
         document.approved_by = current_user.full_name
         document.approved_date = date.today()
         document.status = "Disetujui"
 
-    # E. Jika yang klik adalah MILL HEAD
+    # E. MILL HEAD — divalidasi harus divisi yang sama dengan pengaju dokumen
     elif document.status == "Menunggu Mill Head" and current_user.role == "mill_head":
+        owner = db.query(models.User).filter(models.User.user_id == document.user_id).first()
+        if not owner or owner.division != current_user.division:
+            raise HTTPException(status_code=403, detail="Akses ditolak. Dokumen ini bukan dari divisi Anda.")
         document.approved_by = current_user.full_name
         document.approved_date = date.today()
         document.status = "Disetujui"
@@ -592,7 +610,7 @@ def approve_document_by_leader(
 @router.put("/{document_id}/reject", response_model=schemas.DocumentResponse)
 def reject_document_by_leader(
     document_id: int, 
-    review_data: schemas.DocumentReview, # Memanfaatkan schema review yang sama dengan ISO
+    review_data: schemas.DocumentReview,
     db: Session = Depends(get_db), 
     current_user: models.User = Depends(get_current_user)
 ):
@@ -603,10 +621,8 @@ def reject_document_by_leader(
     if not review_data.notes:
         raise HTTPException(status_code=400, detail="Catatan penolakan (notes) wajib diisi!")
 
-    # Kembalikan ke status Direvisi agar Applicator bisa memperbaiki
     document.status = "Direvisi"
     
-    # Catat alasan penolakan di tabel REVISION_LOGS
     new_log = models.RevisionLog(
         document_id=document_id,
         reviewer_id=current_user.user_id,

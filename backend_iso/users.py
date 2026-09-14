@@ -8,8 +8,8 @@ from pydantic import BaseModel
 router = APIRouter(prefix="/users", tags=["User Management (Admin IT)"])
 
 def check_admin_access(current_user: models.User):
-    if current_user.role not in ["admin_it", "admin_iso"]: 
-        raise HTTPException(status_code=403, detail="Akses ditolak. Fitur ini khusus Admin.")
+    if current_user.role != "admin_it":
+        raise HTTPException(status_code=403, detail="Akses ditolak. Fitur ini khusus Admin IT.")
     
 class PasswordReset(BaseModel):
     password: str
@@ -37,6 +37,7 @@ def create_user(user: schemas.UserCreate, db: Session = Depends(get_db), current
         username=user.username,
         full_name=user.full_name,
         section=user.section,
+        division=user.division,
         role=user.role,
         password=hashed_password
     )
@@ -65,6 +66,8 @@ def update_user(
         user.role = user_update.role
     if user_update.section is not None:
         user.section = user_update.section
+    if user_update.division is not None:
+        user.division = user_update.division
     if user_update.password:
         user.password = security.get_password_hash(user_update.password)
         
@@ -101,6 +104,16 @@ def delete_user(user_id: int, db: Session = Depends(get_db), current_user: model
     user = db.query(models.User).filter(models.User.user_id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User tidak ditemukan")
+
+    # Cegah admin_it menghapus dirinya sendiri
+    if user.user_id == current_user.user_id:
+        raise HTTPException(status_code=400, detail="Anda tidak dapat menghapus akun Anda sendiri.")
+
+    # Cegah menghapus admin_it terakhir yang tersisa di sistem
+    if user.role == "admin_it":
+        remaining_admin_it = db.query(models.User).filter(models.User.role == "admin_it").count()
+        if remaining_admin_it <= 1:
+            raise HTTPException(status_code=400, detail="Tidak dapat menghapus Admin IT terakhir yang tersisa di sistem.")
         
     db.delete(user)
     db.commit()

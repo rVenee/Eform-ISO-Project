@@ -33,9 +33,10 @@ export default function Login() {
       localStorage.setItem('token', response.data.access_token);
       localStorage.setItem('role', role);
       localStorage.setItem('full_name', response.data.user_info.full_name);
-      localStorage.setItem('section', response.data.user_info.section || 'Umum');
+      localStorage.setItem('section', response.data.user_info.section || '');
+      localStorage.setItem('division', response.data.user_info.division || '');
 
-      const isHead = ['unit_head', 'division_head', 'qmr_emr', 'mr', 'hrd', 'mill_head'].includes(role);
+      const isHead = ['unit_head', 'division_head', 'qmr', 'emr', 'enmr', 'smr', 'kahi', 'mr', 'hrd', 'mill_head'].includes(role);
 
       if (role === 'admin_it') {
         navigate('/it-admin');

@@ -58,7 +58,8 @@ def login(user_credentials: OAuth2PasswordRequestForm = Depends(), db: Session =
             "username": user.username,
             "role": user.role,
             "full_name": user.full_name,
-            "section": user.section
+            "section": user.section,
+            "division": user.division
         }
     }
 

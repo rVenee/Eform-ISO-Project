@@ -11,7 +11,11 @@ class User(Base):
     password = Column(String(255), nullable=False)
     full_name = Column(String(100), nullable=False)
     section = Column(String(100), nullable=True)
-    role = Column(Enum('admin_iso', 'admin_it', 'applicator', 'unit_head', 'division_head', 'qmr_emr', 'mr', 'hrd', 'mill_head'), nullable=False)
+    division = Column(String(100), nullable=True)
+    role = Column(Enum(
+    'admin_iso', 'admin_it', 'applicator', 'unit_head', 'division_head',
+    'qmr', 'emr', 'enmr', 'smr', 'kahi', 'mr', 'hrd', 'mill_head'
+    ), nullable=False)
 
     documents = relationship("Document", back_populates="owner", foreign_keys="[Document.user_id]")
     revisions = relationship("RevisionLog", back_populates="reviewer", cascade="all, delete-orphan")

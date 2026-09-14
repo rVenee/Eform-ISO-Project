@@ -9,7 +9,11 @@ class RoleEnum(str, Enum):
     applicator = "applicator"
     unit_head = "unit_head"
     division_head = "division_head"
-    qmr_emr = "qmr_emr"
+    qmr = "qmr"
+    emr = "emr"
+    enmr = "enmr"
+    smr = "smr"
+    kahi = "kahi"
     mr = "mr"
     hrd = "hrd"
     mill_head = "mill_head"
@@ -30,6 +34,7 @@ class UserBase(BaseModel):
     username: str
     full_name: str
     section: Optional[str] = None
+    division: Optional[str] = None
     role: RoleEnum
 
 class UserCreate(UserBase):
@@ -45,6 +50,7 @@ class UserUpdate(BaseModel):
     full_name: Optional[str] = None
     role: Optional[RoleEnum] = None
     section: Optional[str] = None
+    division: Optional[str] = None
     password: Optional[str] = None
 
 # ========================================

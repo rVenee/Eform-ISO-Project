@@ -1,83 +1,178 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Search, ClipboardCheck, X, FileText, GitBranch, Folder, LayoutGrid, CheckCircle } from 'lucide-react';
+import { Search, ClipboardCheck, X, FileText, GitBranch, Folder, LayoutGrid, ChevronDown, CheckCircle, AlertTriangle, Loader2, Download, Eye } from 'lucide-react';
 import apiClient from '../api/axios';
 
 export default function HeadDashboard({ mode }) {
   const [documents, setDocuments] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [searchQuery, setSearchQuery] = useState('');
   
+  // State untuk Filters
+  const [searchQuery, setSearchQuery] = useState('');
+  const [category, setCategory] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+
   const userRole = localStorage.getItem('role');
-  const [isRejectModalOpen, setIsRejectModalOpen] = useState(false);
+  
+  // State untuk Modal Review Dokumen
+  const [reviewDoc, setReviewDoc] = useState(null);
+  const [pdfPreviewUrl, setPdfPreviewUrl] = useState('');
+  const [isPdfLoading, setIsPdfLoading] = useState(false);
+  const [showRejectInput, setShowRejectInput] = useState(false);
   const [rejectNotes, setRejectNotes] = useState('');
-  const [documentToReject, setDocumentToReject] = useState(null);
+  const [showApproveConfirm, setShowApproveConfirm] = useState(false);
 
-  const getTargetStatus = (role) => {
-    switch(role) {
-      case 'unit_head': return 'Menunggu Unit Head';
-      case 'division_head': return 'Menunggu Division Head';
-      case 'qmr_emr': return 'Menunggu QMR';
-      case 'mr': return 'Menunggu MR';
-      case 'hrd': return 'Menunggu HRD';
-      case 'mill_head': return 'Menunggu Mill Head';
-      default: return '';
+  const getTargetStatuses = useCallback((role) => {
+    if (['qmr', 'emr', 'enmr', 'smr', 'kahi', 'mr'].includes(role)) {
+      return [`Menunggu ${role.toUpperCase()}`];
     }
-  };
+    switch(role) {
+      case 'unit_head': return ['Menunggu Unit Head'];
+      case 'division_head': return ['Menunggu Division Head'];
+      case 'hrd': return ['Menunggu HRD', 'Menunggu Division Head']; // HRD memiliki 2 target status
+      case 'mill_head': return ['Menunggu Mill Head'];
+      default: return [];
+    }
+  }, []);
 
-  const fetchDocuments = useCallback(async () => {
-    setIsLoading(true);
+  const fetchDocuments = useCallback(async (showLoading = true) => {
+    if (showLoading) setIsLoading(true);
     try {
-      const response = await apiClient.get('/documents');
+      const params = {};
+      if (searchQuery) params.search = searchQuery;
+      if (category) params.category = category;
+      if (startDate) params.start_date = startDate;
+      if (endDate) params.end_date = endDate;
+      
+      // Jika mode bukan pending dan ada filter status manual, kirim ke API
+      if (mode !== 'pending' && statusFilter) {
+        params.status = statusFilter;
+      }
+
+      const response = await apiClient.get('/documents', { params });
       let data = response.data;
+
+      const targetStatuses = getTargetStatuses(userRole);
       
-      // Filter lokal berdasarkan tab yang diklik di sidebar
       if (mode === 'pending') {
-        const targetStatus = getTargetStatus(userRole);
-        data = data.filter(doc => doc.status === targetStatus);
+        // Tab 1 (Perlu Persetujuan): HANYA tampilkan yang menunggu aksi role ini
+        data = data.filter(doc => targetStatuses.includes(doc.status));
+      } else {
+        // Tab 2 (Semua Dokumen / Riwayat): SEMBUNYIKAN dokumen yang masih menunggu aksi role ini
+        data = data.filter(doc => !targetStatuses.includes(doc.status));
       }
-      
-      if (searchQuery) {
-        data = data.filter(doc => 
-          doc.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
-          (doc.document_number && doc.document_number.toLowerCase().includes(searchQuery.toLowerCase()))
-        );
-      }
-      
+
       setDocuments(data);
     } catch (error) {
       console.error('Gagal memuat dokumen', error);
     } finally {
-      setIsLoading(false);
+      if (showLoading) setIsLoading(false);
     }
-  }, [mode, searchQuery, userRole]);
+  }, [mode, searchQuery, category, statusFilter, startDate, endDate, userRole, getTargetStatuses]);
 
   useEffect(() => {
-    fetchDocuments();
+    const delayDebounceFn = setTimeout(() => fetchDocuments(true), 500);
+    return () => clearTimeout(delayDebounceFn);
   }, [fetchDocuments]);
 
-  const handleApprove = async (docId) => {
-    const confirmApprove = window.confirm("Apakah Anda yakin ingin MENYETUJUI dokumen ini?");
-    if (!confirmApprove) return;
+  useEffect(() => {
+    const interval = setInterval(() => {
+      fetchDocuments(false);
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [fetchDocuments]);
+
+  const handleResetFilters = () => {
+    setSearchQuery(''); setCategory(''); setStatusFilter(''); setStartDate(''); setEndDate('');
+  };
+
+  const [downloadingId, setDownloadingId] = useState(null);
+
+  const handleDownload = async (doc) => {
+    setDownloadingId(doc.document_id);
     try {
-      await apiClient.put(`/documents/${docId}/approve`);
-      fetchDocuments();
+      const res = await apiClient.get(`/documents/${doc.document_id}/export`, { responseType: 'blob' });
+      const url = window.URL.createObjectURL(new Blob([res.data]));
+      
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `${doc.title || 'Dokumen_ISO'}.pdf`);
+      
+      document.body.appendChild(link);
+      link.click();
+      
+      link.parentNode.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      alert("Gagal mengunduh dokumen. Pastikan server merespons dengan benar.");
+    } finally {
+      setDownloadingId(null);
+    }
+  };
+
+  // --- LOGIKA MODAL REVIEW & PDF ---
+  const handleOpenReview = async (doc) => {
+    setReviewDoc(doc);
+    setShowRejectInput(false);
+    setRejectNotes('');
+    setIsPdfLoading(true);
+    setPdfPreviewUrl('');
+    
+    try {
+      const res = await apiClient.get(`/documents/${doc.document_id}/export`, { responseType: 'blob' });
+      const url = window.URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
+      setPdfPreviewUrl(url);
+    } catch (error) {
+      alert("Gagal memuat pratinjau dokumen PDF.");
+    } finally {
+      setIsPdfLoading(false);
+    }
+  };
+
+  const handleCloseReview = () => {
+    if (pdfPreviewUrl) window.URL.revokeObjectURL(pdfPreviewUrl);
+    setReviewDoc(null);
+    setPdfPreviewUrl('');
+    setShowRejectInput(false);
+    setShowApproveConfirm(false); // Reset konfirmasi persetujuan
+  };
+
+  // Eksekusi API saat tombol "Ya, Setujui" di modal diklik
+  const executeApprove = async () => {
+    try {
+      await apiClient.put(`/documents/${reviewDoc.document_id}/approve`);
+      fetchDocuments(false);
+      handleCloseReview();
     } catch (error) {
       alert(error.response?.data?.detail || "Gagal menyetujui dokumen.");
     }
   };
 
   const submitReject = async () => {
-    if (!rejectNotes.trim()) return alert("Catatan penolakan wajib diisi!");
+    if (!rejectNotes.trim()) return alert("Catatan revisi wajib diisi agar pengaju mengetahui letak kesalahannya.");
     try {
-      await apiClient.put(`/documents/${documentToReject}/reject`, {
+      await apiClient.put(`/documents/${reviewDoc.document_id}/reject`, {
         status: 'Direvisi',
         notes: rejectNotes
       });
-      setIsRejectModalOpen(false);
-      setRejectNotes('');
-      fetchDocuments();
+      fetchDocuments(false);
+      handleCloseReview();
     } catch (error) {
-      alert("Gagal menolak dokumen.");
+      alert("Gagal mengembalikan dokumen.");
+    }
+  };
+
+  // --- HELPER TAMPILAN ---
+  const isPendingAction = (status) => getTargetStatuses(userRole).includes(status);
+
+  const getStatusStyle = (status) => {
+    if (isPendingAction(status)) return 'bg-[#fef3c7] text-[#92400e]';
+    switch (status?.toLowerCase()) {
+      case 'disetujui': return 'bg-[#d1fae5] text-[#065f46]';
+      case 'direvisi': return 'bg-[#fee2e2] text-[#b91c1c]';
+      case 'direview': return 'bg-[#dbeafe] text-[#1e40af]';
+      default: return 'bg-gray-100 text-gray-600';
     }
   };
 
@@ -91,81 +186,176 @@ export default function HeadDashboard({ mode }) {
     }
   };
 
-  const isPendingAction = (status) => status === getTargetStatus(userRole);
+  const formatDate = (dateString) => {
+    if (!dateString) return '-';
+    return new Date(dateString).toLocaleDateString('id-ID');
+  };
 
   return (
-    <div className="max-w-6xl mx-auto">
+    <div className="max-w-7xl mx-auto">
       <div className="mb-6">
-        <h2 className="text-xl font-black text-gray-800 mb-1">
-          {mode === 'pending' ? 'Dokumen Perlu Persetujuan' : 'Semua Dokumen'}
-        </h2>
         <p className="text-gray-500 text-sm">
           {mode === 'pending' 
             ? 'Daftar dokumen yang menunggu tinjauan dan persetujuan Anda.' 
-            : 'Seluruh riwayat dan antrean dokumen yang berada di bawah wewenang Anda.'}
+            : 'Riwayat dokumen di bawah wewenang Anda yang sudah disetujui, direvisi, atau sedang diproses oleh pihak lain.'}
         </p>
       </div>
 
-      <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm mb-4">
+      {/* FILTER SECTION */}
+      <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm space-y-4 mb-4">
         <div className="relative">
-          <span className="absolute inset-y-0 left-4 flex items-center text-gray-400"><Search size={18} /></span>
+          <span className="absolute inset-y-0 left-4 flex items-center text-gray-400"><Search size={18} strokeWidth={2} /></span>
           <input 
             type="text" 
             value={searchQuery} 
             onChange={(e) => setSearchQuery(e.target.value)} 
-            placeholder="Cari berdasarkan judul atau nomor dokumen..." 
-            className="w-full pl-11 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-[#126863]" 
+            placeholder="Cari berdasarkan Judul atau No. Dokumen..." 
+            className="w-full pl-11 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-[#126863] text-gray-700 placeholder-gray-400" 
           />
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">Category</label>
+            <div className="relative">
+              <select value={category} onChange={(e) => setCategory(e.target.value)} className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-700 focus:outline-none focus:ring-1 focus:ring-[#126863] appearance-none bg-white cursor-pointer">
+                <option value="">All Categories</option>
+                <option value="WI">Work Instruction (WI)</option>
+                <option value="SOP">Standard Operating Procedure (SOP)</option>
+                <option value="QM">Quality Manual (QM)</option>
+                <option value="FM_FR">Form / Record (FM_FR)</option>
+                <optgroup label="Others"><option value="NCR">NCR</option><option value="DOP">DOP</option><option value="JB">JB</option><option value="TM">TM</option><option value="EMS">EMS</option><option value="EII">EII</option><option value="CM">CM</option></optgroup>
+              </select>
+              <ChevronDown size={18} className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-600 pointer-events-none" />
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">Status</label>
+            <div className="relative">
+              <select 
+                value={statusFilter} 
+                onChange={(e) => setStatusFilter(e.target.value)} 
+                disabled={mode === 'pending'}
+                className={`w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-700 focus:outline-none focus:ring-1 focus:ring-[#126863] appearance-none ${mode === 'pending' ? 'bg-gray-100 cursor-not-allowed' : 'bg-white cursor-pointer'}`}
+              >
+                {mode === 'pending' ? (
+                  <option value="">{getTargetStatuses(userRole).join(' / ')}</option>
+                ) : (
+                  <>
+                    <option value="">All Status</option>
+                    <option value="Draft">Draft</option>
+                    <option value="Menunggu Unit Head">Menunggu Unit Head</option>
+                    <option value="Menunggu Division Head">Menunggu Division Head</option>
+                    <option value="Menunggu ISO">Menunggu ISO</option>
+                    <option value="Direview">Direview</option>
+                    <option value="Direvisi">Direvisi</option>
+                    <option value="Disetujui">Disetujui</option>
+                  </>
+                )}
+              </select>
+              <ChevronDown size={18} className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-600 pointer-events-none" />
+            </div>
+          </div>
+        </div>
+
+        <div className="flex flex-col md:flex-row gap-4 items-end">
+          <div className="flex-1 w-full"><label className="block text-sm font-medium text-gray-700 mb-1.5">From date</label><input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-500 focus:outline-none focus:ring-1 focus:ring-[#126863] bg-white cursor-pointer" /></div>
+          <div className="flex-1 w-full"><label className="block text-sm font-medium text-gray-700 mb-1.5">To date</label><input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-500 focus:outline-none focus:ring-1 focus:ring-[#126863] bg-white cursor-pointer" /></div>
+          <button onClick={handleResetFilters} className="w-full md:w-40 px-6 py-2.5 border border-gray-200 rounded-xl text-sm font-bold text-gray-600 hover:bg-gray-50 hover:text-gray-900 transition-colors h-[42px] shrink-0">Reset filters</button>
         </div>
       </div>
 
+      {/* TABLE SECTION */}
       <div className="bg-white rounded-[20px] border border-gray-200 shadow-sm overflow-x-auto min-h-[300px] relative">
         {isLoading && <div className="absolute inset-0 z-10 bg-white/60 backdrop-blur-[1px] flex items-center justify-center"><div className="w-8 h-8 border-4 border-[#126863]/20 border-t-[#126863] rounded-full animate-spin"></div></div>}
 
-        <table className="w-full text-sm text-center min-w-[900px]">
+        <table className="w-full text-sm text-center min-w-[1000px]">
           <thead className="bg-[#f4f6f8] text-[#8c949c] text-xs font-bold uppercase tracking-wider">
             <tr>
               <th className="px-5 py-4 rounded-tl-[20px]">Kategori</th>
-              <th className="px-5 py-4">Judul Dokumen</th>
-              <th className="px-5 py-4">Pengaju / Seksi</th>
-              <th className="px-5 py-4 text-center">Status Saat Ini</th>
+              <th className="px-5 py-4">Initiator / Author</th>
+              <th className="px-5 py-4">Seksi</th>
+              <th className="px-5 py-4">Judul</th>
+              <th className="px-5 py-4">No. Dokumen</th>
+              <th className="px-5 py-4 text-center">Status</th>
+              <th className="px-5 py-4">Diperbarui</th>
               <th className="px-5 py-4 text-center rounded-tr-[20px]">Aksi</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100 text-gray-700 font-medium">
             {documents.length === 0 && !isLoading ? (
-              <tr><td colSpan="5" className="px-5 py-10 text-gray-400">Tidak ada dokumen yang ditemukan.</td></tr>
+              <tr><td colSpan="8" className="px-5 py-10 text-gray-400">Tidak ada dokumen yang ditemukan.</td></tr>
             ) : (
               documents.map((doc, index) => (
                 <tr key={index} className="hover:bg-gray-50">
-                  <td className="px-5 py-4 align-middle"><div className="flex items-center justify-center gap-3">{getCategoryIcon(doc.category)}<span>{doc.category}</span></div></td>
-                  <td className="px-5 py-4 text-gray-900 align-middle"><div className="max-w-[250px] mx-auto break-words">{doc.title}</div></td>
                   <td className="px-5 py-4 align-middle">
-                    <div className="flex flex-col items-center">
-                      <span className="text-gray-900 font-bold">{doc.author_name || '-'}</span>
-                      <span className="text-xs text-gray-500">{doc.creator_section || 'Umum'}</span>
-                    </div>
+                    <div className="flex items-center justify-center gap-3">{getCategoryIcon(doc.category)}<span>{doc.category || 'Dokumen'}</span></div>
                   </td>
                   <td className="px-5 py-4 align-middle">
-                    <span className={`px-4 py-1.5 rounded-full text-xs font-bold w-max inline-block text-center shadow-sm ${
-                      isPendingAction(doc.status) ? 'bg-[#fef3c7] text-[#92400e]' : 'bg-gray-100 text-gray-600'
-                    }`}>
-                      {doc.status}
-                    </span>
+                    <div className="flex flex-col items-center justify-center text-center">
+                      <span className="text-sm font-bold text-gray-700" title="Initiator (Disiapkan Oleh)">
+                        {doc.creator_name || '-'}
+                      </span>
+                      <span className="text-xs text-gray-500 mt-0.5" title="Author (Pengaju)">
+                        Diajukan oleh: {doc.author_name || '-'}
+                      </span>
+                    </div>
+                  </td>
+                  <td className="px-5 py-4 align-middle text-gray-600">{doc.creator_section || 'Umum'}</td>
+                  <td className="px-5 py-4 text-gray-900 align-middle">
+                    <div className="max-w-[200px] mx-auto whitespace-normal break-words">{doc.title}</div>
+                  </td>
+                  <td className="px-5 py-4 align-middle">
+                    <div className="max-w-[150px] mx-auto whitespace-normal break-words">{doc.document_number || '-'}</div>
+                  </td>
+                  <td className="px-5 py-4 align-middle">
+                    <div className="flex justify-center">
+                      <span className={`px-4 py-1.5 rounded-full text-[11px] font-bold w-max inline-block text-center shadow-sm ${getStatusStyle(doc.status)}`}>
+                        {doc.status}
+                      </span>
+                    </div>
+                  </td>
+                  <td className="px-5 py-4 text-gray-600 text-xs align-middle">
+                    {formatDate(doc.updated_date || doc.created_date)}
                   </td>
                   <td className="px-5 py-4 align-middle">
                     <div className="flex justify-center items-center gap-2">
                       {isPendingAction(doc.status) ? (
+                        <button 
+                          onClick={() => handleOpenReview(doc)}
+                          className="px-5 py-2 bg-[#126863] hover:bg-[#0d4f4c] text-white rounded-lg font-bold text-xs transition-colors shadow-sm w-24"
+                        >
+                          Periksa
+                        </button>
+                      ) : doc.status?.toLowerCase() === 'direvisi' ? (
+                        <span className="text-gray-400 font-bold text-xs italic bg-gray-50 px-3 py-2 rounded-lg border border-gray-100">
+                          Menunggu Direvisi
+                        </span>
+                      ) : doc.status?.toLowerCase() === 'disetujui' ? (
                         <>
-                          <button onClick={() => handleApprove(doc.document_id)} className="flex items-center gap-1.5 px-4 py-2 bg-[#d1fae5] text-[#065f46] hover:bg-[#a7f3d0] rounded-lg font-bold text-xs transition-colors">
-                            <CheckCircle size={16} /> Setujui
+                          <button 
+                            onClick={() => handleOpenReview(doc)}
+                            className="px-3 py-2 bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 rounded-lg font-bold text-xs transition-colors shadow-sm flex items-center gap-1.5"
+                            title="Pratinjau Dokumen"
+                          >
+                            <Eye size={14} /> Preview
                           </button>
-                          <button onClick={() => { setDocumentToReject(doc.document_id); setIsRejectModalOpen(true); }} className="flex items-center gap-1.5 px-4 py-2 bg-[#fee2e2] text-[#b91c1c] hover:bg-[#fca5a5] rounded-lg font-bold text-xs transition-colors">
-                            <X size={16} /> Tolak
+                          <button 
+                            onClick={() => handleDownload(doc)}
+                            disabled={downloadingId === doc.document_id}
+                            className="px-3 py-2 bg-[#d1fae5] hover:bg-[#a7f3d0] text-[#065f46] rounded-lg font-bold text-xs transition-colors shadow-sm flex items-center gap-1.5 disabled:opacity-70 disabled:cursor-not-allowed"
+                            title="Unduh PDF"
+                          >
+                            {downloadingId === doc.document_id ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />} Download
                           </button>
                         </>
                       ) : (
-                        <span className="text-gray-400 text-xs italic">Tidak ada aksi</span>
+                        <button 
+                          onClick={() => handleOpenReview(doc)}
+                          className="px-5 py-2 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-lg font-bold text-xs transition-colors shadow-sm w-24"
+                        >
+                          Lihat
+                        </button>
                       )}
                     </div>
                   </td>
@@ -176,24 +366,134 @@ export default function HeadDashboard({ mode }) {
         </table>
       </div>
 
-      {isRejectModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm px-4">
-          <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-2xl relative">
-            <h3 className="text-xl font-black text-gray-800 mb-2">Tolak Dokumen</h3>
-            <p className="text-sm text-gray-500 mb-4">Berikan alasan mengapa dokumen ini dikembalikan ke pengaju.</p>
-            <textarea 
-              value={rejectNotes}
-              onChange={(e) => setRejectNotes(e.target.value)}
-              placeholder="Tulis catatan revisi di sini..."
-              className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-red-500 min-h-[120px] mb-4"
-            />
-            <div className="flex justify-end gap-3">
-              <button onClick={() => setIsRejectModalOpen(false)} className="px-5 py-2.5 text-sm font-bold text-gray-600 bg-gray-100 rounded-xl hover:bg-gray-200 transition-colors">Batal</button>
-              <button onClick={submitReject} className="px-5 py-2.5 text-sm font-bold text-white bg-red-600 rounded-xl hover:bg-red-700 transition-colors">Kembalikan</button>
+      {/* MODAL REVIEW & PDF PREVIEW */}
+      {reviewDoc && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 md:p-6">
+          <div className="bg-white rounded-2xl w-full max-w-6xl h-[90vh] flex flex-col shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            
+            {/* Modal Header */}
+            <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center bg-gray-50 shrink-0">
+              <div>
+                <h3 className="text-lg font-black text-teal-800 tracking-wide">
+                  Tinjauan Dokumen: {reviewDoc.title}
+                </h3>
+                <p className="text-xs text-gray-500 mt-1 font-medium">
+                  {reviewDoc.category} | Diajukan oleh: {reviewDoc.author_name} ({reviewDoc.creator_section})
+                </p>
+              </div>
+              <button 
+                onClick={handleCloseReview} 
+                className="p-2 text-gray-400 hover:text-gray-700 hover:bg-gray-200 rounded-full transition-colors"
+              >
+                <X size={20} strokeWidth={2.5} />
+              </button>
+            </div>
+
+            {/* Modal Body (PDF Viewer) */}
+            <div className="flex-1 bg-gray-100 relative p-4 overflow-hidden">
+              {isPdfLoading ? (
+                <div className="absolute inset-0 flex flex-col items-center justify-center bg-white/80">
+                  <Loader2 size={32} className="animate-spin text-[#126863] mb-3" />
+                  <p className="text-sm font-bold text-gray-500">Mempersiapkan pratinjau dokumen...</p>
+                </div>
+              ) : pdfPreviewUrl ? (
+                <iframe 
+                  src={`${pdfPreviewUrl}#toolbar=0`} 
+                  className="w-full h-full rounded-xl border border-gray-300 shadow-inner bg-white"
+                  title="PDF Preview"
+                />
+              ) : (
+                <div className="absolute inset-0 flex items-center justify-center text-gray-400">
+                  <p>Pratinjau tidak tersedia.</p>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer (Action Panel) */}
+            {isPendingAction(reviewDoc.status) && (
+              <div className="px-6 py-4 border-t border-gray-200 bg-white shrink-0">
+                {showRejectInput ? (
+                  <div className="animate-in slide-in-from-bottom-2 duration-200">
+                    <label className="block text-sm font-bold text-gray-700 mb-2">
+                      Catatan Revisi <span className="text-red-500">*</span>
+                    </label>
+                    <textarea 
+                      value={rejectNotes}
+                      onChange={(e) => setRejectNotes(e.target.value)}
+                      placeholder="Jelaskan bagian mana yang perlu diperbaiki oleh pengaju..."
+                      className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-red-500 min-h-[80px] mb-3 bg-gray-50"
+                    />
+                    <div className="flex justify-end gap-3">
+                      <button 
+                        onClick={() => setShowRejectInput(false)} 
+                        className="px-5 py-2.5 text-sm font-bold text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-xl transition-colors"
+                      >
+                        Batal
+                      </button>
+                      <button 
+                        onClick={submitReject} 
+                        className="px-6 py-2.5 text-sm font-bold text-white bg-red-600 hover:bg-red-700 rounded-xl transition-colors flex items-center gap-2"
+                      >
+                        <AlertTriangle size={16} /> Kirim Catatan & Tolak
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex justify-between items-center">
+                    <p className="text-sm text-gray-500 hidden md:block">
+                      Pastikan seluruh isi dokumen telah sesuai standar sebelum memverifikasi.
+                    </p>
+                    <div className="flex gap-3 w-full md:w-auto">
+                      <button 
+                        onClick={() => setShowRejectInput(true)} 
+                        className="flex-1 md:flex-none px-6 py-2.5 border-2 border-red-100 text-red-600 hover:bg-red-50 font-bold text-sm rounded-xl transition-colors"
+                      >
+                        Kembalikan untuk Revisi
+                      </button>
+                      <button 
+                        onClick={() => setShowApproveConfirm(true)} 
+                        className="flex-1 md:flex-none px-6 py-2.5 bg-[#126863] text-white hover:bg-[#0d4f4c] font-bold text-sm rounded-xl shadow-md transition-colors flex items-center justify-center gap-2"
+                      >
+                        <CheckCircle size={18} /> Verifikasi & Setujui
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Modal Konfirmasi Approve */}
+      {showApproveConfirm && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/40 backdrop-blur-sm px-4">
+          <div className="bg-white rounded-2xl w-full max-w-sm p-6 shadow-2xl relative text-center animate-in zoom-in-95 duration-200">
+            <div className="w-16 h-16 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-4">
+              <CheckCircle size={32} />
+            </div>
+            <h3 className="text-xl font-black text-gray-800 mb-2">Konfirmasi Persetujuan</h3>
+            <p className="text-sm text-gray-500 mb-6">
+              Perhatian: Tindakan ini akan menyetujui dokumen secara digital. Apakah Anda yakin ingin melanjutkan?
+            </p>
+            <div className="flex justify-center gap-3">
+              <button 
+                onClick={() => setShowApproveConfirm(false)} 
+                className="px-5 py-2.5 text-sm font-bold text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-xl transition-colors w-full"
+              >
+                Batal
+              </button>
+              <button 
+                onClick={executeApprove} 
+                className="px-5 py-2.5 text-sm font-bold text-white bg-[#126863] hover:bg-[#0d4f4c] rounded-xl transition-colors w-full"
+              >
+                Ya, Setujui
+              </button>
             </div>
           </div>
         </div>
       )}
+
     </div>
   );
 }
