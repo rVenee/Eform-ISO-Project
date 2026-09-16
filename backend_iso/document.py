@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, File, UploadFile,
 from sqlalchemy.orm import Session
 from database import get_db
 from typing import Optional
-from datetime import date
+from datetime import date, datetime, timedelta
 from sqlalchemy import or_, and_
 from fastapi.responses import FileResponse
 from docxtpl import DocxTemplate, InlineImage
@@ -20,6 +20,8 @@ load_dotenv()
 BASE_URL = os.getenv("BASE_URL", "http://127.0.0.1:8000")
 
 router = APIRouter(prefix="/documents", tags=["Documents"])
+
+AUTO_TIMEOUT_MINUTES = 30
 
 # Label status resmi untuk role Pimpinan Spesialis (dipakai di visibility filter & approve engine
 # supaya string status selalu konsisten di seluruh file)
@@ -73,13 +75,16 @@ def create_document(
     return new_document
 
 # 2. Endpoint untuk Melihat Daftar Dokumen (Read dengan Filter & Pencarian)
-@router.get("/", response_model=list[schemas.DocumentResponse])
+@router.get("/", response_model=schemas.PaginatedDocumentResponse)
 def get_all_documents(
     category: Optional[str] = None,
     status: Optional[str] = None,
     search: Optional[str] = None,
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
+    mode: Optional[str] = None,
+    page: int = 1,
+    page_size: int = 10,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
@@ -108,8 +113,8 @@ def get_all_documents(
             "kahi": ["TM"],
             "mr": ["QM", "SOP", "WI", "FM_FR", "EMS", "EII"],
         }
-        target_categories = role_categories.get(current_user.role.value, [])
-        status_target = f"Menunggu {ROLE_STATUS_LABEL.get(current_user.role.value, current_user.role.value)}"
+        target_categories = role_categories.get(current_user.role, [])
+        status_target = f"Menunggu {ROLE_STATUS_LABEL.get(current_user.role, current_user.role)}"
 
         query = query.filter(
             or_(
@@ -163,8 +168,38 @@ def get_all_documents(
     if end_date:
         query = query.filter(models.Document.created_date <= end_date)
 
-    documents = query.order_by(models.Document.updated_date.desc()).all()
-    return documents
+    role_target_statuses = {
+        "qmr": ["Menunggu QMR"],
+        "emr": ["Menunggu EMR"],
+        "enmr": ["Menunggu EnMR"],
+        "smr": ["Menunggu SMR"],
+        "kahi": ["Menunggu KAHI"],
+        "mr": ["Menunggu MR"],
+        "unit_head": ["Menunggu Unit Head"],
+        "division_head": ["Menunggu Division Head"],
+        "hrd": ["Menunggu HRD", "Menunggu Division Head"],
+        "mill_head": ["Menunggu Mill Head"],
+    }
+    target_statuses = role_target_statuses.get(current_user.role, [])
+
+    if mode == "pending" and target_statuses:
+        query = query.filter(models.Document.status.in_(target_statuses))
+    elif mode == "all" and target_statuses:
+        query = query.filter(models.Document.status.notin_(target_statuses))
+
+    total_items = query.count()
+    
+    documents = query.order_by(models.Document.updated_date.desc())\
+                      .offset((page - 1) * page_size)\
+                      .limit(page_size)\
+                      .all()
+
+    return {
+        "items": documents,
+        "total_items": total_items,
+        "total_pages": (total_items + page_size - 1) // page_size,
+        "current_page": page
+    }
 
 # 3. Endpoint untuk Memperbarui Dokumen (Update - Partial)
 @router.put("/{document_id}", response_model=schemas.DocumentResponse)
@@ -299,10 +334,23 @@ def review_document(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
+    if current_user.role != "admin_iso":
+        raise HTTPException(status_code=403, detail="Akses ditolak. Hanya Unit ISO yang dapat melakukan review dokumen.")
+
     document = db.query(models.Document).filter(models.Document.document_id == document_id).first()
     if not document:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dokumen tidak ditemukan")
 
+    if document.status != "Direview":
+        raise HTTPException(status_code=400, detail="Dokumen ini tidak sedang dalam proses review Anda.")
+
+    if document.locked_by != current_user.user_id:
+        raise HTTPException(status_code=403, detail="Dokumen ini sedang dikunci oleh Admin ISO lain.")
+
+    if review_data.status not in ("Disetujui", "Direvisi"):
+        raise HTTPException(status_code=400, detail="Status review tidak valid.")
+
+    document.checked_by = current_user.full_name
     if not document.checked_date:
         document.checked_date = date.today()
 
@@ -313,17 +361,20 @@ def review_document(
         document.revision_number = review_data.revision_number
         document.effective_date = review_data.effective_date
         document.approved_date = date.today()
+        document.locked_by = None
+        document.locked_at = None
         
     elif review_data.status == "Direvisi":
         if not review_data.notes:
             raise HTTPException(status_code=400, detail="Catatan revisi wajib diisi jika dokumen ditolak")
-            
         new_log = models.RevisionLog(
             document_id=document_id,
             reviewer_id=current_user.user_id,
             notes=review_data.notes
         )
         db.add(new_log)
+        document.locked_by = None
+        document.locked_at = None
         
     db.commit()
     db.refresh(document)
@@ -503,6 +554,9 @@ def lock_document(
     db: Session = Depends(get_db), 
     current_user: models.User = Depends(get_current_user)
 ):
+    if current_user.role != "admin_iso":
+        raise HTTPException(status_code=403, detail="Akses ditolak. Hanya Unit ISO yang dapat mereview dokumen.")
+
     document = db.query(models.Document).filter(
         models.Document.document_id == document_id
     ).with_for_update().first()
@@ -510,11 +564,20 @@ def lock_document(
     if not document:
         raise HTTPException(status_code=404, detail="Dokumen tidak ditemukan")
 
-    if document.status == "Direview" and document.locked_by and document.locked_by != current_user.user_id:
-        raise HTTPException(status_code=400, detail="Gagal! Dokumen baru saja diambil oleh admin lain.")
+    if document.status not in ("Menunggu ISO", "Direview"):
+        raise HTTPException(status_code=400, detail="Dokumen ini bukan berada di antrean Unit ISO.")
+
+    lock_expired = (
+        document.locked_at is not None and
+        datetime.utcnow() - document.locked_at > timedelta(minutes=AUTO_TIMEOUT_MINUTES)
+    )
+
+    if document.status == "Direview" and document.locked_by and document.locked_by != current_user.user_id and not lock_expired:
+        raise HTTPException(status_code=400, detail="Gagal! Dokumen sedang direview oleh admin lain.")
 
     document.status = "Direview"
     document.locked_by = current_user.user_id
+    document.locked_at = datetime.utcnow()
     db.commit()
     db.refresh(document)
     
@@ -534,9 +597,10 @@ def unlock_document(
 
     if document.locked_by == current_user.user_id:
         if document.status == "Direview":
-            document.status = "Menunggu"
+            document.status = "Menunggu ISO"
             
         document.locked_by = None
+        document.locked_at = None   # BARU
         db.commit()
         db.refresh(document)
         

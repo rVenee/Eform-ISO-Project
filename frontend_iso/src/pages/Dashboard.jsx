@@ -3,6 +3,8 @@ import { Link } from 'react-router-dom';
 import { useNavigate } from 'react-router-dom';
 import { Search, ClipboardCheck, GitBranch, ChevronDown, Download, Eye, Plus, Pencil, LayoutGrid, FileText, Folder, Trash2, X, Lightbulb, Loader2 } from 'lucide-react';
 import apiClient from '../api/axios';
+import Pagination from '../components/Pagination';
+import DocumentFilters from '../components/DocumentFilters';
 
 export default function Dashboard() {
   const [documents, setDocuments] = useState([]);
@@ -28,6 +30,14 @@ export default function Dashboard() {
 
   const [downloadingId, setDownloadingId] = useState(null);
 
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const PAGE_SIZE = 10;
+
+  useEffect(() => {
+    setPage(1);
+  }, [searchQuery, category, statusFilter, startDate, endDate]);
+
   // Auto-fetch dengan Debounce & Background Polling (5 Detik)
   useEffect(() => {
     const fetchFilteredDocuments = async (isBackground = false) => {
@@ -41,7 +51,8 @@ export default function Dashboard() {
         if (endDate) params.end_date = endDate;
 
         const response = await apiClient.get('/documents', { params }); 
-        setDocuments(response.data);
+        setDocuments(response.data.items);
+        setTotalPages(response.data.total_pages);
       } catch (err) {
         setError('Gagal memuat data riwayat dokumen.');
       } finally {
@@ -61,7 +72,7 @@ export default function Dashboard() {
       clearTimeout(delayDebounceFn);
       clearInterval(pollingInterval);
     };
-  }, [searchQuery, category, statusFilter, startDate, endDate]);
+  }, [searchQuery, category, statusFilter, startDate, endDate, page]);
 
   const handleResetFilters = () => {
     setSearchQuery('');
@@ -69,6 +80,7 @@ export default function Dashboard() {
     setStatusFilter('');
     setStartDate('');
     setEndDate('');
+    setPage(1);
   };
 
   const getStatusStyle = (status) => {
@@ -198,92 +210,19 @@ export default function Dashboard() {
         </Link>
       </div>
 
-      <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm space-y-4 mb-4">
-        
-        <div className="relative">
-          <span className="absolute inset-y-0 left-4 flex items-center text-gray-400">
-            <Search size={18} strokeWidth={2} />
-          </span>
-          <input 
-            type="text" 
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Cari berdasarkan Judul atau No. Dokumen..." 
-            className="w-full pl-11 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-[#126863] text-gray-700 placeholder-gray-400"
-          />
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Category</label>
-            <div className="relative">
-              <select 
-                value={category}
-                onChange={(e) => setCategory(e.target.value)}
-                className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-700 focus:outline-none focus:ring-1 focus:ring-[#126863] appearance-none bg-white cursor-pointer"
-              >
-                <option value="">All Categories</option>
-                <option value="WI">Work Instruction (WI)</option>
-                <option value="SOP">Standard Operating Procedure (SOP)</option>
-                <option value="QM">Quality Manual (QM)</option>
-                <option value="FM_FR">Form / Record (FM_FR)</option>
-                <optgroup label="Others">
-                  <option value="NCR">NCR</option>
-                  <option value="DOP">DOP</option>
-                  <option value="JB">JB</option>
-                  <option value="TM">TM</option>
-                </optgroup>
-              </select>
-              <ChevronDown size={18} className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-600 pointer-events-none" />
-            </div>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Status</label>
-            <div className="relative">
-              <select 
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-700 focus:outline-none focus:ring-1 focus:ring-[#126863] appearance-none bg-white cursor-pointer"
-              >
-                <option value="">All Status</option>
-                <option value="Draft">Draft</option>
-                <option value="Menunggu">Menunggu</option>
-                <option value="Direview">Direview</option>
-                <option value="Direvisi">Direvisi</option>
-                <option value="Disetujui">Disetujui</option>
-              </select>
-              <ChevronDown size={18} className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-600 pointer-events-none" />
-            </div>
-          </div>
-        </div>
-
-        <div className="flex flex-col md:flex-row gap-4 items-end">
-          <div className="flex-1 w-full">
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">From date</label>
-            <input 
-              type="date" 
-              value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
-              className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-500 focus:outline-none focus:ring-1 focus:ring-[#126863] bg-white cursor-pointer" 
-            />
-          </div>
-          <div className="flex-1 w-full">
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">To date</label>
-            <input 
-              type="date" 
-              value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
-              className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-500 focus:outline-none focus:ring-1 focus:ring-[#126863] bg-white cursor-pointer" 
-            />
-          </div>
-          <button 
-            onClick={handleResetFilters}
-            className="w-full md:w-40 px-6 py-2.5 border border-gray-200 rounded-xl text-sm font-bold text-gray-600 hover:bg-gray-50 hover:text-gray-900 transition-colors h-[42px] shrink-0"
-          >
-            Reset filters
-          </button>
-        </div>
-      </div>
+      <DocumentFilters
+        searchQuery={searchQuery}
+        onSearchChange={setSearchQuery}
+        category={category}
+        onCategoryChange={setCategory}
+        statusFilter={statusFilter}
+        onStatusChange={setStatusFilter}
+        startDate={startDate}
+        onStartDateChange={setStartDate}
+        endDate={endDate}
+        onEndDateChange={setEndDate}
+        onReset={handleResetFilters}
+      />
 
       {error && (
         <div className="p-4 bg-red-50 text-red-600 rounded-xl text-sm font-medium border border-red-100 mb-4">
@@ -414,6 +353,10 @@ export default function Dashboard() {
 
           </tbody>
         </table>
+
+        {/* Pagination */}
+        <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
+
         {/* =========================================
                        Modal Preview PDF
         ========================================= */}

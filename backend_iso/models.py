@@ -39,13 +39,19 @@ class Document(Base):
         'Menunggu Division Head', 
         'Menunggu ISO', 
         'Menunggu QMR', 
+        'Menunggu EMR',
+        'Menunggu EnMR',
+        'Menunggu SMR',
+        'Menunggu KAHI',
         'Menunggu MR', 
         'Menunggu HRD', 
         'Menunggu Mill Head', 
+        'Direview',
         'Direvisi', 
         'Disetujui'
     ), default='Draft')
     locked_by = Column(Integer, ForeignKey("USERS.user_id", ondelete="SET NULL"), nullable=True)
+    locked_at = Column(TIMESTAMP, nullable=True)
     created_date = Column(TIMESTAMP, server_default=func.now())
     updated_date = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now())
     prepared_date = Column(Date, nullable=True)

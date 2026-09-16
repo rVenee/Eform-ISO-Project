@@ -1,7 +1,7 @@
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { 
   FileText, GitBranch, ClipboardCheck, FolderClosed, 
-  LayoutGrid, Headset, ChevronDown, LogOut 
+  LayoutGrid, Headset, ChevronDown, LogOut, Settings
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import logoIK from '../assets/logo_ik.png'; 
@@ -75,9 +75,9 @@ export default function MainLayout() {
       case '/head/pending': return 'Perlu Persetujuan';
       case '/head/all': return 'Semua Dokumen';
       case '/form-wi': return 'Work Instruction';
-      case '/qm': return 'Quality Manual';
       case '/sop': return 'Standard Operating Procedure';
-      case '/fm-fr': return 'Forms & Records';
+      case '/dop': return 'Daftar Operasi Prosedur';
+      case '/eii': return 'Environmental & Instrumentation Instruction';
       case '/others': return 'Others';
       case '/admin': return 'Dashboard ISO';
       case '/it-admin': return 'User Management';
@@ -138,17 +138,17 @@ export default function MainLayout() {
 
               <div className="px-6 mb-3 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Document</div>
               <nav className="space-y-1 mb-8">
-                <Link to="/qm" className={`flex items-center gap-3 py-2.5 text-sm ${isActive('/qm')}`}>
-                  <FileText size={18} strokeWidth={2.5} /> QM
+                <Link to="/form-wi" className={`flex items-center gap-3 py-2.5 text-sm ${isActive('/form-wi')}`}>
+                  <ClipboardCheck size={18} strokeWidth={2.5} /> WI
                 </Link>
                 <Link to="/sop" className={`flex items-center gap-3 py-2.5 text-sm ${isActive('/sop')}`}>
                   <GitBranch size={18} strokeWidth={2.5} /> SOP
                 </Link>
-                <Link to="/form-wi" className={`flex items-center gap-3 py-2.5 text-sm ${isActive('/form-wi')}`}>
-                  <ClipboardCheck size={18} strokeWidth={2.5} /> WI
+                <Link to="/dop" className={`flex items-center gap-3 py-2.5 text-sm ${isActive('/dop')}`}>
+                  <FolderClosed size={18} strokeWidth={2.5} /> DOP
                 </Link>
-                <Link to="/fm-fr" className={`flex items-center gap-3 py-2.5 text-sm ${isActive('/fm-fr')}`}>
-                  <FolderClosed size={18} strokeWidth={2.5} /> FM / FR
+                <Link to="/eii" className={`flex items-center gap-3 py-2.5 text-sm ${isActive('/eii')}`}>
+                  <Settings size={18} strokeWidth={2.5} /> EII
                 </Link>
                 <Link to="/others" className={`flex items-center gap-3 py-2.5 text-sm ${isActive('/others')}`}>
                   <FileText size={18} strokeWidth={2.5} /> Others

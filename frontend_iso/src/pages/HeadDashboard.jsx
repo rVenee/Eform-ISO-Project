@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Search, ClipboardCheck, X, FileText, GitBranch, Folder, LayoutGrid, ChevronDown, CheckCircle, AlertTriangle, Loader2, Download, Eye } from 'lucide-react';
 import apiClient from '../api/axios';
+import Pagination from '../components/Pagination';
+import DocumentFilters from '../components/DocumentFilters';
 
 export default function HeadDashboard({ mode }) {
   const [documents, setDocuments] = useState([]);
@@ -39,7 +41,7 @@ export default function HeadDashboard({ mode }) {
   const fetchDocuments = useCallback(async (showLoading = true) => {
     if (showLoading) setIsLoading(true);
     try {
-      const params = {};
+      const params = { page, page_size: PAGE_SIZE, mode };
       if (searchQuery) params.search = searchQuery;
       if (category) params.category = category;
       if (startDate) params.start_date = startDate;
@@ -51,19 +53,10 @@ export default function HeadDashboard({ mode }) {
       }
 
       const response = await apiClient.get('/documents', { params });
-      let data = response.data;
-
-      const targetStatuses = getTargetStatuses(userRole);
       
-      if (mode === 'pending') {
-        // Tab 1 (Perlu Persetujuan): HANYA tampilkan yang menunggu aksi role ini
-        data = data.filter(doc => targetStatuses.includes(doc.status));
-      } else {
-        // Tab 2 (Semua Dokumen / Riwayat): SEMBUNYIKAN dokumen yang masih menunggu aksi role ini
-        data = data.filter(doc => !targetStatuses.includes(doc.status));
-      }
+      setDocuments(response.data.items);
+      setTotalPages(response.data.total_pages);
 
-      setDocuments(data);
     } catch (error) {
       console.error('Gagal memuat dokumen', error);
     } finally {
@@ -71,6 +64,10 @@ export default function HeadDashboard({ mode }) {
     }
   }, [mode, searchQuery, category, statusFilter, startDate, endDate, userRole, getTargetStatuses]);
 
+  useEffect(() => {
+    setPage(1);
+  }, [mode, searchQuery, category, statusFilter, startDate, endDate]);
+  
   useEffect(() => {
     const delayDebounceFn = setTimeout(() => fetchDocuments(true), 500);
     return () => clearTimeout(delayDebounceFn);
@@ -84,10 +81,14 @@ export default function HeadDashboard({ mode }) {
   }, [fetchDocuments]);
 
   const handleResetFilters = () => {
-    setSearchQuery(''); setCategory(''); setStatusFilter(''); setStartDate(''); setEndDate('');
+    setSearchQuery(''); setCategory(''); setStatusFilter(''); setStartDate(''); setEndDate(''); setPage(1);
   };
 
   const [downloadingId, setDownloadingId] = useState(null);
+
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const PAGE_SIZE = 10;
 
   const handleDownload = async (doc) => {
     setDownloadingId(doc.document_id);
@@ -201,69 +202,21 @@ export default function HeadDashboard({ mode }) {
         </p>
       </div>
 
-      {/* FILTER SECTION */}
-      <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm space-y-4 mb-4">
-        <div className="relative">
-          <span className="absolute inset-y-0 left-4 flex items-center text-gray-400"><Search size={18} strokeWidth={2} /></span>
-          <input 
-            type="text" 
-            value={searchQuery} 
-            onChange={(e) => setSearchQuery(e.target.value)} 
-            placeholder="Cari berdasarkan Judul atau No. Dokumen..." 
-            className="w-full pl-11 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-[#126863] text-gray-700 placeholder-gray-400" 
-          />
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Category</label>
-            <div className="relative">
-              <select value={category} onChange={(e) => setCategory(e.target.value)} className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-700 focus:outline-none focus:ring-1 focus:ring-[#126863] appearance-none bg-white cursor-pointer">
-                <option value="">All Categories</option>
-                <option value="WI">Work Instruction (WI)</option>
-                <option value="SOP">Standard Operating Procedure (SOP)</option>
-                <option value="QM">Quality Manual (QM)</option>
-                <option value="FM_FR">Form / Record (FM_FR)</option>
-                <optgroup label="Others"><option value="NCR">NCR</option><option value="DOP">DOP</option><option value="JB">JB</option><option value="TM">TM</option><option value="EMS">EMS</option><option value="EII">EII</option><option value="CM">CM</option></optgroup>
-              </select>
-              <ChevronDown size={18} className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-600 pointer-events-none" />
-            </div>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Status</label>
-            <div className="relative">
-              <select 
-                value={statusFilter} 
-                onChange={(e) => setStatusFilter(e.target.value)} 
-                disabled={mode === 'pending'}
-                className={`w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-700 focus:outline-none focus:ring-1 focus:ring-[#126863] appearance-none ${mode === 'pending' ? 'bg-gray-100 cursor-not-allowed' : 'bg-white cursor-pointer'}`}
-              >
-                {mode === 'pending' ? (
-                  <option value="">{getTargetStatuses(userRole).join(' / ')}</option>
-                ) : (
-                  <>
-                    <option value="">All Status</option>
-                    <option value="Draft">Draft</option>
-                    <option value="Menunggu Unit Head">Menunggu Unit Head</option>
-                    <option value="Menunggu Division Head">Menunggu Division Head</option>
-                    <option value="Menunggu ISO">Menunggu ISO</option>
-                    <option value="Direview">Direview</option>
-                    <option value="Direvisi">Direvisi</option>
-                    <option value="Disetujui">Disetujui</option>
-                  </>
-                )}
-              </select>
-              <ChevronDown size={18} className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-600 pointer-events-none" />
-            </div>
-          </div>
-        </div>
-
-        <div className="flex flex-col md:flex-row gap-4 items-end">
-          <div className="flex-1 w-full"><label className="block text-sm font-medium text-gray-700 mb-1.5">From date</label><input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-500 focus:outline-none focus:ring-1 focus:ring-[#126863] bg-white cursor-pointer" /></div>
-          <div className="flex-1 w-full"><label className="block text-sm font-medium text-gray-700 mb-1.5">To date</label><input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-500 focus:outline-none focus:ring-1 focus:ring-[#126863] bg-white cursor-pointer" /></div>
-          <button onClick={handleResetFilters} className="w-full md:w-40 px-6 py-2.5 border border-gray-200 rounded-xl text-sm font-bold text-gray-600 hover:bg-gray-50 hover:text-gray-900 transition-colors h-[42px] shrink-0">Reset filters</button>
-        </div>
-      </div>
+      <DocumentFilters
+        searchQuery={searchQuery}
+        onSearchChange={setSearchQuery}
+        category={category}
+        onCategoryChange={setCategory}
+        statusFilter={statusFilter}
+        onStatusChange={setStatusFilter}
+        statusDisabled={mode === 'pending'}
+        lockedStatusLabel={getTargetStatuses(userRole).join(' / ')}
+        startDate={startDate}
+        onStartDateChange={setStartDate}
+        endDate={endDate}
+        onEndDateChange={setEndDate}
+        onReset={handleResetFilters}
+      />
 
       {/* TABLE SECTION */}
       <div className="bg-white rounded-[20px] border border-gray-200 shadow-sm overflow-x-auto min-h-[300px] relative">
@@ -365,6 +318,8 @@ export default function HeadDashboard({ mode }) {
           </tbody>
         </table>
       </div>
+      
+      <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
 
       {/* MODAL REVIEW & PDF PREVIEW */}
       {reviewDoc && (

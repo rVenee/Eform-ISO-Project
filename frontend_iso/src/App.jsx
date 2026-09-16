@@ -7,9 +7,9 @@ import FormWI from './pages/FormWI';
 import FormOthers from './pages/FormOthers';
 import AdminDashboard from './pages/AdminDashboard';
 import ReviewDokumen from './pages/ReviewDokumen';
-import FormQM from './pages/FormQM';
+import FormDOP from './pages/FormDOP';
+import FormEII from './pages/FormEII';
 import FormSOP from './pages/FormSOP';
-import FormFM from './pages/FormFM';
 import HelpSupport from './pages/HelpSupport';
 import HeadDashboard from './pages/HeadDashboard';
 
@@ -44,10 +44,10 @@ function App() {
           {/* Rute User Biasa */}
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/form-wi" element={<FormWI />} />
-          <Route path="/qm" element={<FormQM />} />
-          <Route path="/sop" element={<FormSOP />} />
-          <Route path="/fm-fr" element={<FormFM />} />
           <Route path="/wi/:id" element={<FormWI />} />
+          <Route path="/sop" element={<FormSOP />} />
+          <Route path="/dop" element={<FormDOP />} />
+          <Route path="/eii" element={<FormEII />} />
           <Route path="/others" element={<FormOthers />} />
           <Route path="/others/:id" element={<FormOthers />} />
           

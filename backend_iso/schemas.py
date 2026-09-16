@@ -53,6 +53,12 @@ class UserUpdate(BaseModel):
     division: Optional[str] = None
     password: Optional[str] = None
 
+class PaginatedUserResponse(BaseModel):
+    items: list[UserResponse]
+    total_items: int
+    total_pages: int
+    current_page: int
+
 # ========================================
 # SCHEMAS UNTUK DOCUMENTS
 # ========================================
@@ -80,6 +86,7 @@ class DocumentResponse(DocumentBase):
     created_date: datetime
     updated_date: datetime
     locked_by: Optional[int] = None
+    locked_at: Optional[datetime] = None
     locked_by_name: Optional[str] = None
     creator_section: Optional[str] = None
 
@@ -101,6 +108,12 @@ class DocumentContentResponse(DocumentContentBase):
 
     class Config:
         from_attributes = True
+
+class PaginatedDocumentResponse(BaseModel):
+    items: list[DocumentResponse]
+    total_items: int
+    total_pages: int
+    current_page: int
 
 # ========================================
 # SCHEMAS UNTUK DOCUMENTS ATTACHMENTS

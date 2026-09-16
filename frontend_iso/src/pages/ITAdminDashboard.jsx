@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { Search, Plus, Pencil, Trash2, Key, ShieldCheck, User as UserIcon, X, AlertTriangle, ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react';
+import { Search, Plus, Pencil, Trash2, Key, ShieldCheck, User as UserIcon, X, AlertTriangle, ArrowUp, ArrowDown, ArrowUpDown, Check } from 'lucide-react';
 import { ALL_SECTIONS, SECTION_TO_DIVISION, DIVISIONS } from '../data/sectionDivisionMap';
-import apiClient from '../api/axios'; 
+import apiClient from '../api/axios';
+import Pagination from '../components/Pagination';
 
 function SectionCombobox({ value, onChange, disabled }) {
   const [query, setQuery] = useState(value || '');
@@ -78,6 +79,12 @@ export default function ITAdminDashboard() {
   const [modalMode, setModalMode] = useState('add'); 
   const [selectedUser, setSelectedUser] = useState(null);
 
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalItems, setTotalItems] = useState(0);
+  const [divisionOptions, setDivisionOptions] = useState([]);
+  const PAGE_SIZE = 10;
+
   const SECTION_DRIVEN_ROLES = ['applicator', 'unit_head'];
   const FULL_DIVISION_DROPDOWN_ROLES = ['division_head'];
   const MILL_HEAD_DIVISIONS = ['MHO', 'MHO P'];
@@ -97,8 +104,22 @@ export default function ITAdminDashboard() {
   const fetchUsers = async () => {
     setIsLoading(true);
     try {
-      const response = await apiClient.get('/users');
-      setUsers(response.data);
+      const params = {
+        page,
+        page_size: PAGE_SIZE,
+        role: roleFilter,
+        division: divisionFilter,
+      };
+      if (searchQuery) params.search = searchQuery;
+      if (sortConfig.key) {
+        params.sort_by = sortConfig.key;
+        params.sort_dir = sortConfig.direction;
+      }
+
+      const response = await apiClient.get('/users', { params });
+      setUsers(response.data.items);
+      setTotalPages(response.data.total_pages);
+      setTotalItems(response.data.total_items);
     } catch (error) {
       console.error("Gagal memuat data pengguna:", error);
     } finally {
@@ -134,8 +155,25 @@ export default function ITAdminDashboard() {
   };
 
   useEffect(() => {
-    fetchUsers();
+    const fetchDivisions = async () => {
+      try {
+        const res = await apiClient.get('/users/divisions');
+        setDivisionOptions(res.data);
+      } catch (error) {
+        console.error("Gagal memuat daftar divisi:", error);
+      }
+    };
+    fetchDivisions();
   }, []);
+
+  useEffect(() => {
+    setPage(1);
+  }, [searchQuery, roleFilter, divisionFilter, sortConfig]);
+
+  useEffect(() => {
+    const delayDebounceFn = setTimeout(() => fetchUsers(), 400);
+    return () => clearTimeout(delayDebounceFn);
+  }, [searchQuery, roleFilter, divisionFilter, sortConfig, page]);
 
   const handleOpenModal = (mode, user = null) => {
     setModalMode(mode);
@@ -190,21 +228,6 @@ export default function ITAdminDashboard() {
       alert("Gagal menghapus pengguna.");
     }
   };
-  
-  const uniqueDivisions = useMemo(() => {
-    const divs = new Set(users.map(u => u.division).filter(Boolean));
-    return Array.from(divs).sort();
-  }, [users]);
-
-  const filteredUsers = users.filter(user => {
-    const matchesSearch =
-      user.full_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      user.username.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (user.section || '').toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesRole = roleFilter === 'all' || user.role === roleFilter;
-    const matchesDivision = divisionFilter === 'all' || user.division === divisionFilter;
-    return matchesSearch && matchesRole && matchesDivision;
-  });
 
   const handleSort = (key) => {
     setSortConfig(prev => {
@@ -214,18 +237,6 @@ export default function ITAdminDashboard() {
       return { key, direction: 'asc' };
     });
   };
-
-  const sortedUsers = useMemo(() => {
-    if (!sortConfig.key) return filteredUsers;
-    const sorted = [...filteredUsers].sort((a, b) => {
-      const valA = (a[sortConfig.key] || '').toString().toLowerCase();
-      const valB = (b[sortConfig.key] || '').toString().toLowerCase();
-      if (valA < valB) return sortConfig.direction === 'asc' ? -1 : 1;
-      if (valA > valB) return sortConfig.direction === 'asc' ? 1 : -1;
-      return 0;
-    });
-    return sorted;
-  }, [filteredUsers, sortConfig]);
 
   const SortIcon = ({ columnKey }) => {
     if (sortConfig.key !== columnKey) return <ArrowUpDown size={12} className="text-gray-300" />;
@@ -271,7 +282,7 @@ export default function ITAdminDashboard() {
   ];
 
   return (
-    <div className="max-w-7xl mx-auto h-[calc(100vh-100px)] flex flex-col">
+    <div className="max-w-7xl mx-auto">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6 shrink-0">
         <p className="text-gray-500 text-sm max-w-2xl leading-relaxed">
           Kelola akun Unit ISO dan User di sini: tambah pengguna baru, ubah data & peran, reset kata sandi, atau hapus akun. Perubahan berlaku langsung ke tabel <code className="bg-gray-100 px-1.5 py-0.5 rounded text-gray-700 font-mono text-xs border border-gray-200">users</code>.
@@ -309,15 +320,15 @@ export default function ITAdminDashboard() {
           className="w-full md:w-56 px-4 py-3 border border-gray-200 rounded-xl text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#126863]/50 bg-white shadow-sm cursor-pointer"
         >
           <option value="all">Semua Divisi</option>
-          {uniqueDivisions.map(div => (
+          {divisionOptions.map(div => (
             <option key={div} value={div}>{div}</option>
           ))}
         </select>
       </div>
 
       {/* Wadah tabel: border tipis konsisten (border-gray-100), header dibedakan dengan bg-gray-50 */}
-      <div className="bg-white rounded-2xl border border-gray-200 shadow-sm flex flex-col flex-1 min-h-0 overflow-hidden mb-6">
-        <div className="flex-1 overflow-x-auto overflow-y-auto">
+      <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden mb-6">
+        <div className="overflow-x-auto">
           <table className="w-full border-collapse min-w-[900px]">
             <thead className="bg-gray-50 sticky top-0 z-10 border-b border-gray-200">
               <tr>
@@ -348,12 +359,14 @@ export default function ITAdminDashboard() {
             <tbody>
               {isLoading ? (
                 <tr><td colSpan="6" className="text-center py-10 text-gray-400">Memuat data...</td></tr>
-              ) : sortedUsers.length === 0 ? (
+              ) : users.length === 0 ? (
                 <tr><td colSpan="6" className="text-center py-10 text-gray-400">Tidak ada pengguna ditemukan.</td></tr>
               ) : (
-                sortedUsers.map((user, index) => (
+                users.map((user, index) => (
                   <tr key={user.user_id} className="border-b border-gray-100 last:border-b-0 hover:bg-gray-50/60 transition-colors">
-                    <td className="px-6 py-3.5 text-sm font-medium text-gray-400 text-center align-middle">{index + 1}</td>
+                        <td className="px-6 py-3.5 text-sm font-medium text-gray-400 text-center align-middle">
+                          {(page - 1) * PAGE_SIZE + index + 1}
+                        </td>
                     <td className="px-6 py-3.5 text-center align-middle">
                       <div className="font-bold text-gray-600">{user.full_name}</div>
                       <div className="text-xs text-gray-500">@{user.username}</div>
@@ -397,9 +410,11 @@ export default function ITAdminDashboard() {
           </table>
         </div>
         <div className="p-4 border-t border-gray-100 bg-white text-xs text-gray-500 font-medium text-left">
-          Menampilkan {filteredUsers.length} dari {users.length} pengguna
+          Menampilkan {users.length} dari {totalItems} pengguna
         </div>
       </div>
+          
+      <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
 
       <div className="bg-[#f0f7f7] border border-[#126863]/30 rounded-xl p-4 flex items-start gap-3 shrink-0">
         <ShieldCheck className="text-[#126863] shrink-0 mt-0.5" size={20} />

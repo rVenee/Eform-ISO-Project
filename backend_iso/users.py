@@ -1,5 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import or_, asc, desc
 from sqlalchemy.orm import Session
+from typing import Optional
 from database import get_db
 import models, schemas, security
 from auth import get_current_user
@@ -14,11 +16,69 @@ def check_admin_access(current_user: models.User):
 class PasswordReset(BaseModel):
     password: str
 
-# 1. Endpoint untuk Melihat Semua User
-@router.get("/", response_model=list[schemas.UserResponse])
-def get_all_users(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+VALID_SORT_COLUMNS = {
+    "full_name": models.User.full_name,
+    "section": models.User.section,
+    "division": models.User.division,
+    "role": models.User.role,
+}
+
+# 1. Endpoint untuk Melihat Semua User (dengan Search, Filter, Sort, Pagination)
+@router.get("/", response_model=schemas.PaginatedUserResponse)
+def get_all_users(
+    search: Optional[str] = None,
+    role: Optional[str] = None,
+    division: Optional[str] = None,
+    sort_by: Optional[str] = None,
+    sort_dir: str = "asc",
+    page: int = 1,
+    page_size: int = 10,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
     check_admin_access(current_user)
-    return db.query(models.User).all()
+
+    query = db.query(models.User)
+
+    if search:
+        query = query.filter(
+            or_(
+                models.User.full_name.ilike(f"%{search}%"),
+                models.User.username.ilike(f"%{search}%"),
+                models.User.section.ilike(f"%{search}%"),
+            )
+        )
+    if role and role != "all":
+        query = query.filter(models.User.role == role)
+    if division and division != "all":
+        query = query.filter(models.User.division == division)
+
+    if sort_by in VALID_SORT_COLUMNS:
+        column = VALID_SORT_COLUMNS[sort_by]
+        query = query.order_by(desc(column) if sort_dir == "desc" else asc(column))
+    else:
+        query = query.order_by(models.User.user_id.asc())
+
+    total_items = query.count()
+
+    users = query.offset((page - 1) * page_size).limit(page_size).all()
+
+    return {
+        "items": users,
+        "total_items": total_items,
+        "total_pages": (total_items + page_size - 1) // page_size,
+        "current_page": page
+    }
+
+# 1b. Endpoint untuk Daftar Divisi Unik (dipakai dropdown filter, terpisah dari pagination)
+@router.get("/divisions", response_model=list[str])
+def get_distinct_divisions(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    check_admin_access(current_user)
+    rows = db.query(models.User.division).filter(models.User.division.isnot(None)).distinct().order_by(models.User.division).all()
+    return [r[0] for r in rows]
 
 # 2. Endpoint untuk Tambah User Baru (Khusus Admin)
 @router.post("/", response_model=schemas.UserResponse, status_code=status.HTTP_201_CREATED)
@@ -105,11 +165,9 @@ def delete_user(user_id: int, db: Session = Depends(get_db), current_user: model
     if not user:
         raise HTTPException(status_code=404, detail="User tidak ditemukan")
 
-    # Cegah admin_it menghapus dirinya sendiri
     if user.user_id == current_user.user_id:
         raise HTTPException(status_code=400, detail="Anda tidak dapat menghapus akun Anda sendiri.")
 
-    # Cegah menghapus admin_it terakhir yang tersisa di sistem
     if user.role == "admin_it":
         remaining_admin_it = db.query(models.User).filter(models.User.role == "admin_it").count()
         if remaining_admin_it <= 1:

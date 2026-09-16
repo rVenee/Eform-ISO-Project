@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Search, ClipboardCheck, GitBranch, ChevronDown, Download, FileText, Folder, LayoutGrid, Loader2 } from 'lucide-react';
 import apiClient from '../api/axios';
+import Pagination from '../components/Pagination';
+import DocumentFilters from '../components/DocumentFilters';
 
 export default function AdminDashboard() {
   const [documents, setDocuments] = useState([]);
@@ -19,11 +21,15 @@ export default function AdminDashboard() {
   // State untuk melacak ID dokumen yang sedang diunduh
   const [downloadingId, setDownloadingId] = useState(null);
 
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const PAGE_SIZE = 10;
+
   // Fungsi Fetch Data yang bisa dipanggil kapan saja
   const fetchFilteredDocuments = useCallback(async (showLoading = true) => {
     if (showLoading) setIsLoading(true);
     try {
-      const params = {};
+      const params = { page, page_size: PAGE_SIZE };
       if (searchQuery) params.search = searchQuery;
       if (category) params.category = category;
       if (statusFilter) params.status = statusFilter;
@@ -31,12 +37,17 @@ export default function AdminDashboard() {
       if (endDate) params.end_date = endDate;
 
       const response = await apiClient.get('/documents', { params }); 
-      setDocuments(response.data);
+      setDocuments(response.data.items);
+      setTotalPages(response.data.total_pages);
     } catch (err) {
       setError('Gagal memuat antrean dokumen.');
     } finally {
       if (showLoading) setIsLoading(false);
     }
+  }, [searchQuery, category, statusFilter, startDate, endDate, page]);
+
+  useEffect(() => {
+    setPage(1);
   }, [searchQuery, category, statusFilter, startDate, endDate]);
 
   // Efek 1: Fetch saat filter berubah (dengan Debounce)
@@ -64,7 +75,7 @@ export default function AdminDashboard() {
   };
 
   const handleResetFilters = () => {
-    setSearchQuery(''); setCategory(''); setStatusFilter(''); setStartDate(''); setEndDate('');
+    setSearchQuery(''); setCategory(''); setStatusFilter(''); setStartDate(''); setEndDate(''); setPage(1);
   };
 
   const handleDownload = async (doc) => {
@@ -91,13 +102,29 @@ export default function AdminDashboard() {
   };
 
   const getStatusStyle = (status) => {
-    switch (status?.toLowerCase()) {
-      case 'disetujui': return 'bg-[#d1fae5] text-[#065f46]';
-      case 'menunggu': return 'bg-[#fef3c7] text-[#92400e]';
-      case 'direvisi': return 'bg-[#fee2e2] text-[#b91c1c]';
-      case 'diproses': 
-      case 'direview': return 'bg-[#dbeafe] text-[#1e40af]';
-      default: return 'bg-gray-100 text-gray-600';
+    switch (status) {
+      case 'Disetujui':
+        return 'bg-[#d1fae5] text-[#065f46]';
+      case 'Direvisi':
+        return 'bg-[#fee2e2] text-[#b91c1c]';
+      case 'Direview':
+        return 'bg-[#dbeafe] text-[#1e40af]';
+      case 'Draft':
+        return 'bg-gray-100 text-gray-600';
+      case 'Menunggu Unit Head':
+      case 'Menunggu Division Head':
+      case 'Menunggu ISO':
+      case 'Menunggu QMR':
+      case 'Menunggu EMR':
+      case 'Menunggu EnMR':
+      case 'Menunggu SMR':
+      case 'Menunggu KAHI':
+      case 'Menunggu MR':
+      case 'Menunggu HRD':
+      case 'Menunggu Mill Head':
+        return 'bg-[#fef3c7] text-[#92400e]';
+      default:
+        return 'bg-gray-100 text-gray-500';
     }
   };
 
@@ -121,6 +148,21 @@ export default function AdminDashboard() {
     );
   };
 
+  const currentUserId = parseInt(localStorage.getItem('user_id'), 10);
+
+  const canUnlockOwnDocument = (doc) => {
+    return doc.status === 'Direview' && doc.locked_by === currentUserId;
+  };
+
+  const handleUnlockOwn = async (docId) => {
+    try {
+      await apiClient.put(`/documents/${docId}/unlock`);
+      fetchFilteredDocuments(false);
+    } catch (error) {
+      alert(error.response?.data?.detail || "Gagal membuka kunci dokumen.");
+    }
+  };
+
   return (
     <div className="max-w-6xl mx-auto">
       <div className="mb-6">
@@ -129,44 +171,20 @@ export default function AdminDashboard() {
         </p>
       </div>
 
-      <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm space-y-4 mb-4">
-        <div className="relative">
-          <span className="absolute inset-y-0 left-4 flex items-center text-gray-400"><Search size={18} strokeWidth={2} /></span>
-          <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search by title or category" className="w-full pl-11 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-[#126863] text-gray-700 placeholder-gray-400" />
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Category</label>
-            <div className="relative">
-              <select value={category} onChange={(e) => setCategory(e.target.value)} className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-700 focus:outline-none focus:ring-1 focus:ring-[#126863] appearance-none bg-white cursor-pointer">
-                <option value="">All Categories</option>
-                <option value="WI">Work Instruction (WI)</option>
-                <option value="SOP">Standard Operating Procedure (SOP)</option>
-                <option value="QM">Quality Manual (QM)</option>
-                <option value="FM_FR">Form / Record (FM_FR)</option>
-                <optgroup label="Others"><option value="NCR">NCR</option><option value="DOP">DOP</option><option value="JB">JB</option><option value="TM">TM</option></optgroup>
-              </select>
-              <ChevronDown size={18} className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-600 pointer-events-none" />
-            </div>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Status</label>
-            <div className="relative">
-              <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-700 focus:outline-none focus:ring-1 focus:ring-[#126863] appearance-none bg-white cursor-pointer">
-                <option value="">All Status</option><option value="Menunggu">Menunggu</option><option value="Direview">Direview</option><option value="Direvisi">Direvisi</option><option value="Disetujui">Disetujui</option>
-              </select>
-              <ChevronDown size={18} className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-600 pointer-events-none" />
-            </div>
-          </div>
-        </div>
-
-        <div className="flex flex-col md:flex-row gap-4 items-end">
-          <div className="flex-1 w-full"><label className="block text-sm font-medium text-gray-700 mb-1.5">From date</label><input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-500 focus:outline-none focus:ring-1 focus:ring-[#126863] bg-white cursor-pointer" /></div>
-          <div className="flex-1 w-full"><label className="block text-sm font-medium text-gray-700 mb-1.5">To date</label><input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-500 focus:outline-none focus:ring-1 focus:ring-[#126863] bg-white cursor-pointer" /></div>
-          <button onClick={handleResetFilters} className="w-full md:w-40 px-6 py-2.5 border border-gray-200 rounded-xl text-sm font-bold text-gray-600 hover:bg-gray-50 hover:text-gray-900 transition-colors h-[42px] shrink-0">Reset filters</button>
-        </div>
-      </div>
+      <DocumentFilters
+        searchQuery={searchQuery}
+        onSearchChange={setSearchQuery}
+        searchPlaceholder="Search by title or category"
+        category={category}
+        onCategoryChange={setCategory}
+        statusFilter={statusFilter}
+        onStatusChange={setStatusFilter}
+        startDate={startDate}
+        onStartDateChange={setStartDate}
+        endDate={endDate}
+        onEndDateChange={setEndDate}
+        onReset={handleResetFilters}
+      />
 
       {error && <div className="p-4 bg-red-50 text-red-600 rounded-xl text-sm font-medium border border-red-100 mb-4">{error}</div>}
 
@@ -208,7 +226,7 @@ export default function AdminDashboard() {
                         {doc.status || 'Menunggu'}
                       </span>
 
-                      {doc.status?.toLowerCase() === 'direview' && (
+                      {doc.status === 'Direview' && (
                         <div className="absolute bottom-full mb-2 hidden group-hover:block w-max bg-white text-gray-600 text-xs font-medium py-2 px-3 rounded-lg shadow-[0_4px_12px_rgba(0,0,0,0.12)] border border-gray-100 z-20 transition-all">
                           Sedang direview oleh <span className="font-bold text-[#126863]">{doc.locked_by_name || 'Admin lain'}</span>
                           <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-white drop-shadow-sm"></div>
@@ -219,18 +237,34 @@ export default function AdminDashboard() {
                   <td className="px-5 py-4 text-gray-600 text-xs align-middle">{formatDateTime(doc.created_date)}</td>
                   <td className="px-5 py-4 align-middle">
                     <div className="flex justify-center">
-                      {['menunggu', 'direview', 'diproses'].includes(doc.status?.toLowerCase()) ? (
-                        <button onClick={() => handleLockAndReview(doc.document_id)} disabled={doc.status?.toLowerCase() === 'direview'} className={`px-5 py-2 rounded-lg font-bold text-xs shadow-sm transition-colors w-24 ${doc.status?.toLowerCase() === 'direview' ? 'bg-gray-400 cursor-not-allowed text-white' : 'bg-[#126863] hover:bg-[#0d4f4c] text-white'}`}>
-                          Review
-                        </button>
-                      ) : doc.status?.toLowerCase() === 'disetujui' ? (
-                        <button 
+                      {doc.status === 'Menunggu ISO' || doc.status === 'Direview' ? (
+                        <div className="flex flex-col items-center gap-1">
+                          <button
+                            onClick={() => handleLockAndReview(doc.document_id)}
+                            disabled={doc.status === 'Direview'}
+                            className={`px-5 py-2 rounded-lg font-bold text-xs shadow-sm transition-colors w-24 ${
+                              doc.status === 'Direview'
+                                ? 'bg-gray-400 cursor-not-allowed text-white'
+                                : 'bg-[#126863] hover:bg-[#0d4f4c] text-white'
+                            }`}
+                          >
+                            Review
+                          </button>
+                          {canUnlockOwnDocument(doc) && (
+                            <button
+                              onClick={() => handleUnlockOwn(doc.document_id)}
+                              className="text-[10px] text-amber-600 hover:text-amber-800 underline font-medium"
+                            >
+                              Buka Kunci Dokumen Ini
+                            </button>
+                          )}
+                        </div>
+                      ) : doc.status === 'Disetujui' ? (
+                        <button
                           onClick={() => handleDownload(doc)}
                           disabled={downloadingId === doc.document_id}
                           className={`flex items-center justify-center gap-2 px-3 py-2 border border-[#126863] text-[#126863] rounded-lg font-bold text-xs transition-colors w-24 ${
-                            downloadingId === doc.document_id 
-                              ? 'opacity-70 cursor-not-allowed bg-teal-50' 
-                              : 'hover:bg-teal-50'
+                            downloadingId === doc.document_id ? 'opacity-70 cursor-not-allowed bg-teal-50' : 'hover:bg-teal-50'
                           }`}
                           title="Unduh Dokumen Final"
                         >
@@ -242,7 +276,7 @@ export default function AdminDashboard() {
                           {downloadingId === doc.document_id ? 'Proses...' : 'Unduh'}
                         </button>
                       ) : (
-                        <div className="w-24 text-gray-400 text-xs italic">Menunggu User</div>
+                        <div className="w-24 text-gray-400 text-xs italic">Tahap Lain</div>
                       )}
                     </div>
                   </td>
@@ -252,6 +286,9 @@ export default function AdminDashboard() {
           </tbody>
         </table>
       </div>
+
+      <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />      
+
     </div>
   );
 }
