@@ -64,6 +64,7 @@ class PaginatedUserResponse(BaseModel):
 # ========================================
 class DocumentBase(BaseModel):
     category: str
+    target_specialist: Optional[str] = None
     title: str
     creator_name: Optional[str] = None
     checked_by: Optional[str] = None
@@ -88,6 +89,10 @@ class DocumentResponse(DocumentBase):
     locked_by: Optional[int] = None
     locked_at: Optional[datetime] = None
     locked_by_name: Optional[str] = None
+    first_check_viewed_by: Optional[int] = None
+    first_check_viewer_name: Optional[str] = None
+    last_revision_by_role: Optional[str] = None
+    last_revision_by: Optional[str] = None
     creator_section: Optional[str] = None
 
     class Config:
@@ -142,6 +147,7 @@ class RevisionLogResponse(BaseModel):
     log_id: int
     document_id: int
     reviewer_id: int
+    reviewer_name: Optional[str] = None
     notes: str
     date_create: datetime
 

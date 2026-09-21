@@ -16,6 +16,8 @@ export default function FormOthers() {
   const [formData, setFormData] = useState({
     title: '',
     type_iso_doc: '',
+    target_specialist: '',
+    creator_name: '',
     file: null,
     fileName: ''
   });
@@ -31,7 +33,9 @@ export default function FormOthers() {
           if (isi_form) {
             setFormData({
               title: metadata.title || '',
-              type_iso_doc: metadata.category || '', 
+              type_iso_doc: metadata.category || '',
+              creator_name: metadata.creator_name || '',
+              target_specialist: metadata.target_specialist || '', 
               file: null, 
               fileName: isi_form.fileName || '' 
             });
@@ -46,6 +50,13 @@ export default function FormOthers() {
 
   const handleChange = (field, value) => {
     setFormData(prev => ({ ...prev, [field]: value }));
+  };
+
+  const getDestinationLabel = (category) => {
+    if (['JB', 'QMS', 'TM', 'EMS', 'CM', 'QMS_SP'].includes(category)) return 'Unit Head';
+    if (['DOP', 'EII'].includes(category)) return 'Division Head';
+    if (category === 'SOP') return 'Unit ISO';
+    return 'Unit ISO';
   };
 
   // --- HANDLER DRAG & DROP FILE ---
@@ -104,7 +115,9 @@ export default function FormOthers() {
       // TAHAP 1: Metadata Utama
       const metadataPayload = {
         category: formData.type_iso_doc, 
-        title: formData.title || `Dokumen ${formData.type_iso_doc}`, 
+        target_specialist: formData.type_iso_doc === 'SOP' ? formData.target_specialist : null,
+        title: formData.title || `Dokumen ${formData.type_iso_doc}`,
+        creator_name: formData.creator_name, 
         document_number: "",
         creator_name: "",
         approved_by: "",
@@ -188,19 +201,15 @@ export default function FormOthers() {
                     required
                   >
                     <option value="" disabled>Pilih Kategori</option>
-                    
-                    <optgroup label="Dokumen Utama (Manual Upload)">
-                      <option value="QM">QM</option>
-                      <option value="SOP">SOP</option>
-                      <option value="FM_FR">FM/FR</option>
-                    </optgroup>
-                    
-                    <optgroup label="Dokumen Lainnya">
-                      <option value="NCR">NCR</option>
-                      <option value="DOP">DOP</option>
-                      <option value="JB">JB</option>
-                      <option value="TM">TM</option>
-                    </optgroup>
+                    <option value="SOP">SOP</option>
+                    <option value="DOP">DOP</option>
+                    <option value="EII">EII</option>
+                    <option value="JB">JB</option>
+                    <option value="QMS">QMS</option>
+                    <option value="QMS_SP">QMS_SP</option>
+                    <option value="TM">TM</option>
+                    <option value="EMS">EMS</option>
+                    <option value="CM">CM</option>
                   </select>
                 </div>
                 <div>
@@ -214,6 +223,41 @@ export default function FormOthers() {
                     required 
                   />
                 </div>
+                  <div className="md:col-span-2">
+                  <label className="block text-sm font-bold text-gray-600 mb-2">Initiator (Disiapkan Oleh) <span className="text-red-500">*</span></label>
+                  <input 
+                    type="text" 
+                    value={formData.creator_name} 
+                    onChange={(e) => handleChange('creator_name', e.target.value)} 
+                    placeholder="Nama lengkap yang menyiapkan dokumen ini..." 
+                    className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-[#126863]" 
+                    required 
+                  />
+                  <p className="text-xs text-gray-400 mt-1.5">
+                    Isi nama orang yang menyiapkan dokumen ini - bisa berbeda dari Anda yang mengunggah. Nama ini akan mengisi kolom "Disiapkan Oleh" pada dokumen.
+                  </p>
+                </div>
+                {formData.type_iso_doc === 'SOP' && (
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-bold text-gray-600 mb-2">
+                      Bidang Dokumen (Tujuan Persetujuan) <span className="text-red-500">*</span>
+                    </label>
+                    <select
+                      value={formData.target_specialist}
+                      onChange={(e) => handleChange('target_specialist', e.target.value)}
+                      className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-[#126863] appearance-none bg-white cursor-pointer"
+                      required
+                    >
+                      <option value="" disabled>Pilih Bidang</option>
+                      <option value="qmr">Quality (QMR)</option>
+                      <option value="emr">Environment (EMR)</option>
+                      <option value="enmr">Energy (EnMR)</option>
+                      <option value="smr">Safety (SMR)</option>
+                      <option value="kahi">Halal (KAHI)</option>
+                    </select>
+                    <p className="text-xs text-gray-400 mt-1.5">Menentukan spesialis mana yang akan meninjau SOP ini setelah disetujui Division Head.</p>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -266,11 +310,11 @@ export default function FormOthers() {
             <button 
               type="button"
               onClick={() => setShowConfirm(true)}
-              disabled={isLoading || !formData.type_iso_doc || !formData.fileName}
+              disabled={isLoading || !formData.type_iso_doc || !formData.fileName || !formData.creator_name.trim() || (formData.type_iso_doc === 'SOP' && !formData.target_specialist)}
               className="flex items-center gap-2 px-6 py-3.5 bg-[#126863] text-white rounded-xl font-bold text-sm hover:bg-[#0d4f4c] shadow-sm transition-colors disabled:opacity-70"
             >
               <Send size={18} strokeWidth={2.5} />
-              Submit ke Unit ISO
+              Kirim ke {getDestinationLabel(formData.type_iso_doc)}
             </button>
           </div>
         </form>
@@ -282,7 +326,7 @@ export default function FormOthers() {
           <div className="bg-white rounded-[20px] w-full max-w-md p-7 shadow-2xl">
             <h3 className="text-xl font-black text-[#126863] mb-3">Konfirmasi Pengiriman</h3>
             <p className="text-sm text-gray-600 mb-6 leading-relaxed">
-              Dokumen akan masuk ke antrean <strong>Unit ISO</strong> dan tidak dapat diedit kembali kecuali statusnya dikembalikan menjadi Direvisi.
+              Dokumen akan masuk ke antrean <strong>{getDestinationLabel(formData.type_iso_doc)}</strong> dan tidak dapat diedit kembali kecuali statusnya dikembalikan menjadi Direvisi.
             </p>
             <div className="flex justify-end gap-3">
               <button type="button" onClick={() => setShowConfirm(false)} className="px-5 py-2.5 text-sm font-bold text-gray-600 bg-gray-100 rounded-xl hover:bg-gray-200 transition-colors">Batal</button>

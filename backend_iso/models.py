@@ -29,29 +29,24 @@ class Document(Base):
     checked_by = Column(String(100), nullable=True)
     approved_by = Column(String(100), nullable=True)
     category = Column(Enum('WI', 'DOP', 'SOP', 'EII', 'JB', 'QMS', 'TM', 'EMS', 'CM', 'QMS_SP'), nullable=False)
+    target_specialist = Column(String(10), nullable=True)
     title = Column(String(255), nullable=False)
     document_number = Column(String(100), nullable=True)
     revision_number = Column(String(50), nullable=True)
     effective_date = Column(Date, nullable=True)
     status = Column(Enum(
-        'Draft', 
-        'Menunggu Unit Head', 
-        'Menunggu Division Head', 
-        'Menunggu ISO', 
-        'Menunggu QMR', 
-        'Menunggu EMR',
-        'Menunggu EnMR',
-        'Menunggu SMR',
-        'Menunggu KAHI',
-        'Menunggu MR', 
-        'Menunggu HRD', 
-        'Menunggu Mill Head', 
-        'Direview',
-        'Direvisi', 
-        'Disetujui'
+        'Draft',
+        'Menunggu Unit Head', 'Verifikasi Akhir Unit Head',
+        'Menunggu Division Head', 'Verifikasi Akhir Division Head',
+        'Menunggu ISO',
+        'Menunggu QMR', 'Menunggu EMR', 'Menunggu EnMR', 'Menunggu SMR', 'Menunggu KAHI',
+        'Menunggu MR', 'Menunggu HRD', 'Menunggu Mill Head',
+        'Direview', 'Direvisi', 'Disetujui'
     ), default='Draft')
     locked_by = Column(Integer, ForeignKey("USERS.user_id", ondelete="SET NULL"), nullable=True)
     locked_at = Column(TIMESTAMP, nullable=True)
+    first_check_viewed_by = Column(Integer, ForeignKey("USERS.user_id", ondelete="SET NULL"), nullable=True)
+    first_check_viewed_at = Column(TIMESTAMP, nullable=True)
     created_date = Column(TIMESTAMP, server_default=func.now())
     updated_date = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now())
     prepared_date = Column(Date, nullable=True)
@@ -60,6 +55,7 @@ class Document(Base):
 
     owner = relationship("User", back_populates="documents", foreign_keys=[user_id])
     locker = relationship("User", foreign_keys=[locked_by])
+    first_check_viewer = relationship("User", foreign_keys=[first_check_viewed_by])
     contents = relationship("DocumentContent", back_populates="document", cascade="all, delete-orphan")
     attachments = relationship("DocumentAttachment", back_populates="document", cascade="all, delete-orphan")
     revisions = relationship("RevisionLog", back_populates="document", cascade="all, delete-orphan")
@@ -69,12 +65,30 @@ class Document(Base):
         return self.locker.full_name if self.locker else None
 
     @property
+    def first_check_viewer_name(self):
+        return self.first_check_viewer.full_name if self.first_check_viewer else None
+
+    @property
     def creator_section(self):
         return self.owner.section if self.owner and self.owner.section else 'Umum'
 
     @property
     def author_name(self):
         return self.owner.full_name if self.owner else None
+
+    @property
+    def last_revision_by(self):
+        if not self.revisions:
+            return None
+        latest = max(self.revisions, key=lambda r: r.date_create)
+        return latest.reviewer.full_name if latest.reviewer else None
+
+    @property
+    def last_revision_by_role(self):
+        if not self.revisions:
+            return None
+        latest = max(self.revisions, key=lambda r: r.date_create)
+        return latest.reviewer.role if latest.reviewer else None
 
 class DocumentContent(Base):
     __tablename__ = "DOCUMENTS_CONTENTS"
@@ -107,3 +121,7 @@ class RevisionLog(Base):
 
     document = relationship("Document", back_populates="revisions")
     reviewer = relationship("User", back_populates="revisions")
+
+    @property
+    def reviewer_name(self):
+        return self.reviewer.full_name if self.reviewer else None

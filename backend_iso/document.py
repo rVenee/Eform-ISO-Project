@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from database import get_db
 from typing import Optional
 from datetime import date, datetime, timedelta
-from sqlalchemy import or_, and_
+from sqlalchemy import or_, and_, asc, desc
 from fastapi.responses import FileResponse
 from docxtpl import DocxTemplate, InlineImage
 from docx.shared import Mm
@@ -23,6 +23,9 @@ router = APIRouter(prefix="/documents", tags=["Documents"])
 
 AUTO_TIMEOUT_MINUTES = 30
 
+VIEWING_TIMEOUT_MINUTES = 2
+FIRST_CHECK_STATUSES = ['Menunggu Unit Head', 'Menunggu Division Head']
+
 # Label status resmi untuk role Pimpinan Spesialis (dipakai di visibility filter & approve engine
 # supaya string status selalu konsisten di seluruh file)
 ROLE_STATUS_LABEL = {
@@ -33,6 +36,18 @@ ROLE_STATUS_LABEL = {
     "kahi": "KAHI",
     "mr": "MR",
 }
+
+VALID_DOCUMENT_SORT_COLUMNS = {
+    "category": models.Document.category,
+    "title": models.Document.title,
+    "document_number": models.Document.document_number,
+    "status": models.Document.status,
+    "created_date": models.Document.created_date,
+    "updated_date": models.Document.updated_date,
+}
+
+UNIT_HEAD_SECOND_PASS_CATEGORIES = ['WI', 'JB', 'QMS', 'TM', 'EMS', 'CM', 'QMS_SP']
+DIVISION_HEAD_SECOND_PASS_CATEGORIES = ['DOP', 'EII']
 
 def determine_initial_status(category: str) -> str:
     if category in ['WI', 'JB', 'QMS', 'TM', 'EMS', 'CM', 'QMS_SP']:
@@ -56,6 +71,7 @@ def create_document(
 
     new_document = models.Document(
         category=doc.category,
+        target_specialist=doc.target_specialist,
         title=doc.title,
         creator_name=doc.creator_name if doc.creator_name else current_user.full_name,
         checked_by=doc.checked_by,
@@ -83,6 +99,8 @@ def get_all_documents(
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
     mode: Optional[str] = None,
+    sort_by: Optional[str] = None,
+    sort_dir: str = "desc", 
     page: int = 1,
     page_size: int = 10,
     db: Session = Depends(get_db),
@@ -106,12 +124,12 @@ def get_all_documents(
         schemas.RoleEnum.smr, schemas.RoleEnum.kahi, schemas.RoleEnum.mr
     ]:
         role_categories = {
-            "qmr": ["QM", "SOP", "WI", "FM_FR"],
+            "qmr": [],
             "emr": ["EMS"],
             "enmr": ["EII"],
             "smr": ["DOP", "JB"],
             "kahi": ["TM"],
-            "mr": ["QM", "SOP", "WI", "FM_FR", "EMS", "EII"],
+            "mr": [],
         }
         target_categories = role_categories.get(current_user.role, [])
         status_target = f"Menunggu {ROLE_STATUS_LABEL.get(current_user.role, current_user.role)}"
@@ -175,9 +193,9 @@ def get_all_documents(
         "smr": ["Menunggu SMR"],
         "kahi": ["Menunggu KAHI"],
         "mr": ["Menunggu MR"],
-        "unit_head": ["Menunggu Unit Head"],
-        "division_head": ["Menunggu Division Head"],
-        "hrd": ["Menunggu HRD", "Menunggu Division Head"],
+        "unit_head": ["Menunggu Unit Head", "Verifikasi Akhir Unit Head"],
+        "division_head": ["Menunggu Division Head", "Verifikasi Akhir Division Head"],
+        "hrd": ["Menunggu HRD"],
         "mill_head": ["Menunggu Mill Head"],
     }
     target_statuses = role_target_statuses.get(current_user.role, [])
@@ -189,10 +207,13 @@ def get_all_documents(
 
     total_items = query.count()
     
-    documents = query.order_by(models.Document.updated_date.desc())\
-                      .offset((page - 1) * page_size)\
-                      .limit(page_size)\
-                      .all()
+    if sort_by in VALID_DOCUMENT_SORT_COLUMNS:
+        column = VALID_DOCUMENT_SORT_COLUMNS[sort_by]
+        query = query.order_by(desc(column) if sort_dir == "desc" else asc(column))
+    else:
+        query = query.order_by(models.Document.updated_date.desc())
+
+    documents = query.offset((page - 1) * page_size).limit(page_size).all()
 
     return {
         "items": documents,
@@ -233,16 +254,47 @@ def delete_document(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
-    document_query = db.query(models.Document).filter(models.Document.document_id == document_id)
-    document = document_query.first()
-    
+    document = db.query(models.Document).filter(
+        models.Document.document_id == document_id
+    ).with_for_update().first()
+
     if document is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dokumen tidak ditemukan")
-        
-    document_query.delete(synchronize_session=False)
+
+    if document.user_id != current_user.user_id and document.creator_name != current_user.full_name:
+        raise HTTPException(status_code=403, detail="Anda hanya dapat menghapus dokumen yang Anda ajukan atau siapkan sendiri.")
+
+    is_deletable = (
+        document.status == 'Draft'
+        or document.status in FIRST_CHECK_STATUSES
+        or (document.status == 'Menunggu ISO' and document.category == 'SOP')
+    )
+    if not is_deletable:
+        raise HTTPException(status_code=400, detail="Dokumen tidak dapat dihapus karena sudah pernah diperiksa.")
+
+    # Cek apakah sedang dilihat oleh pemeriksa pertama (Unit Head / Division Head)
+    if document.status in FIRST_CHECK_STATUSES and document.first_check_viewed_by:
+        is_expired = (
+            document.first_check_viewed_at is None or
+            datetime.utcnow() - document.first_check_viewed_at > timedelta(minutes=VIEWING_TIMEOUT_MINUTES)
+        )
+        if not is_expired:
+            viewer = db.query(models.User).filter(models.User.user_id == document.first_check_viewed_by).first()
+            viewer_name = viewer.full_name if viewer else "pemeriksa"
+            raise HTTPException(status_code=400, detail=f"Dokumen sedang diperiksa oleh {viewer_name}, tidak bisa dihapus saat ini.")
+
+    # Cek apakah sedang dikunci Unit ISO (khusus SOP, pemeriksa pertamanya ISO)
+    if document.status == 'Menunggu ISO' and document.category == 'SOP' and document.locked_by:
+        is_expired = (
+            document.locked_at is None or
+            datetime.utcnow() - document.locked_at > timedelta(minutes=AUTO_TIMEOUT_MINUTES)
+        )
+        if not is_expired:
+            raise HTTPException(status_code=400, detail="Dokumen sedang direview oleh Unit ISO, tidak bisa dihapus saat ini.")
+
+    db.delete(document)
     db.commit()
-    
-    return {"message": "Dokumen berhasil dihapus"}
+    return None
 
 # 5. Endpoint untuk Menyimpan/Memperbarui Isi Form Dokumen (JSON)
 @router.post("/{document_id}/contents", response_model=schemas.DocumentContentResponse)
@@ -326,7 +378,7 @@ def upload_attachment(
     
     return new_attachment
 
-# 8. Endpoint untuk Review Dokumen (Admin ISO)
+# 8. Endpoint untuk Review Dokumen
 @router.put("/{document_id}/review", response_model=schemas.DocumentResponse)
 def review_document(
     document_id: int,
@@ -350,23 +402,10 @@ def review_document(
     if review_data.status not in ("Disetujui", "Direvisi"):
         raise HTTPException(status_code=400, detail="Status review tidak valid.")
 
-    document.checked_by = current_user.full_name
-    if not document.checked_date:
-        document.checked_date = date.today()
-
-    document.status = review_data.status
-    
-    if review_data.status == "Disetujui":
-        document.document_number = review_data.document_number
-        document.revision_number = review_data.revision_number
-        document.effective_date = review_data.effective_date
-        document.approved_date = date.today()
-        document.locked_by = None
-        document.locked_at = None
-        
-    elif review_data.status == "Direvisi":
+    if review_data.status == "Direvisi":
         if not review_data.notes:
             raise HTTPException(status_code=400, detail="Catatan revisi wajib diisi jika dokumen ditolak")
+        document.status = "Direvisi"
         new_log = models.RevisionLog(
             document_id=document_id,
             reviewer_id=current_user.user_id,
@@ -375,13 +414,70 @@ def review_document(
         db.add(new_log)
         document.locked_by = None
         document.locked_at = None
-        
+        db.commit()
+        db.refresh(document)
+        return document
+
+    # --- review_data.status == "Disetujui": Unit ISO menyelesaikan bagiannya ---
+    document.document_number = review_data.document_number
+    document.revision_number = review_data.revision_number
+    document.effective_date = review_data.effective_date
+
+    if document.category == "SOP":
+        # SOP: langsung ke spesialis pilihan, tidak ada verifikasi akhir
+        if document.target_specialist:
+            label = ROLE_STATUS_LABEL.get(document.target_specialist, document.target_specialist)
+            document.status = f"Menunggu {label}"
+        else:
+            document.status = "Disetujui"
+            document.approved_date = date.today()
+    elif document.category in UNIT_HEAD_SECOND_PASS_CATEGORIES:
+        document.status = "Verifikasi Akhir Unit Head"
+    elif document.category in DIVISION_HEAD_SECOND_PASS_CATEGORIES:
+        document.status = "Verifikasi Akhir Division Head"
+    else:
+        document.status = "Disetujui"
+        document.approved_date = date.today()
+
+    # PENTING: checked_by / approved_by TIDAK disentuh di sini lagi
+
+    document.locked_by = None
+    document.locked_at = None
+
     db.commit()
     db.refresh(document)
-    
+
     return document
 
-# 9. Endpoint untuk Melihat Riwayat Revisi Dokumen
+# 9. Endpoint untuk Mengunduh File Mentah Dokumen Others oleh Admin ISO
+@router.get("/{document_id}/download-raw")
+def download_raw_attachment(
+    document_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    if current_user.role != "admin_iso":
+        raise HTTPException(status_code=403, detail="Akses ditolak. Hanya Unit ISO yang dapat mengunduh dokumen mentah.")
+
+    attachment = db.query(models.DocumentAttachment).filter(
+        models.DocumentAttachment.document_id == document_id,
+        models.DocumentAttachment.subchapter_reference == 'Attachment_Utama_Others'
+    ).first()
+
+    if not attachment:
+        raise HTTPException(status_code=404, detail="Dokumen mentah tidak ditemukan.")
+
+    local_path = attachment.file_path.split("8000/")[-1]
+    if not os.path.exists(local_path):
+        raise HTTPException(status_code=404, detail="File fisik hilang dari server.")
+
+    prefix = f"doc{document_id}_"
+    filename_only = os.path.basename(local_path)
+    original_filename = filename_only[len(prefix):] if filename_only.startswith(prefix) else filename_only
+
+    return FileResponse(path=local_path, filename=original_filename, media_type='application/octet-stream')
+
+# 10. Endpoint untuk Melihat Riwayat Revisi Dokumen
 @router.get("/{document_id}/revisions", response_model=list[schemas.RevisionLogResponse])
 def get_revision_logs(
     document_id: int, 
@@ -391,7 +487,7 @@ def get_revision_logs(
     logs = db.query(models.RevisionLog).filter(models.RevisionLog.document_id == document_id).order_by(models.RevisionLog.date_create.desc()).all()
     return logs
 
-# 10. Endpoint untuk Mencetak Dokumen Final (Otomatis Convert Word ke PDF)
+# 11. Endpoint untuk Mencetak Dokumen Final (Otomatis Convert Word ke PDF)
 @router.get("/{document_id}/export")
 def export_document_pdf(
     document_id: int,
@@ -547,7 +643,7 @@ def export_document_pdf(
         media_type='application/pdf'
     )
 
-# 11. Endpoint untuk Mengunci Dokumen (Lock) saat diklik "Review"
+# 12. Endpoint untuk Mengunci Dokumen (Lock) saat diklik "Review"
 @router.put("/{document_id}/lock", response_model=schemas.DocumentResponse)
 def lock_document(
     document_id: int, 
@@ -583,7 +679,7 @@ def lock_document(
     
     return document
 
-# 12. Endpoint untuk Membuka Kunci Dokumen (Unlock) saat "Batalkan Review"
+# 13. Endpoint untuk Membuka Kunci Dokumen (Unlock) saat "Batalkan Review"
 @router.put("/{document_id}/unlock", response_model=schemas.DocumentResponse)
 def unlock_document(
     document_id: int, 
@@ -606,7 +702,45 @@ def unlock_document(
         
     return document
 
-# 13. Endpoint untuk Persetujuan Pimpinan (Approve Workflow Engine)
+# 14. Endpoint untuk mencatat user yang mereview dokumen pertama kali
+@router.put("/{document_id}/start-viewing", response_model=schemas.DocumentResponse)
+def start_viewing_document(
+    document_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    document = db.query(models.Document).filter(models.Document.document_id == document_id).first()
+    if not document:
+        raise HTTPException(status_code=404, detail="Dokumen tidak ditemukan")
+
+    if document.status in FIRST_CHECK_STATUSES:
+        document.first_check_viewed_by = current_user.user_id
+        document.first_check_viewed_at = datetime.utcnow()
+        db.commit()
+        db.refresh(document)
+
+    return document
+
+# 15. Endpoint untuk menghapus nama user yang sudah selesai mereview dokumen pertama kali
+@router.put("/{document_id}/stop-viewing", response_model=schemas.DocumentResponse)
+def stop_viewing_document(
+    document_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    document = db.query(models.Document).filter(models.Document.document_id == document_id).first()
+    if not document:
+        raise HTTPException(status_code=404, detail="Dokumen tidak ditemukan")
+
+    if document.first_check_viewed_by == current_user.user_id:
+        document.first_check_viewed_by = None
+        document.first_check_viewed_at = None
+        db.commit()
+        db.refresh(document)
+
+    return document
+
+# 16. Endpoint untuk Persetujuan Pimpinan (Approve Workflow Engine)
 @router.put("/{document_id}/approve", response_model=schemas.DocumentResponse)
 def approve_document_by_leader(
     document_id: int, 
@@ -617,30 +751,52 @@ def approve_document_by_leader(
     if not document:
         raise HTTPException(status_code=404, detail="Dokumen tidak ditemukan")
 
-    # --- ENGINE ROUTING BERDASARKAN ROLE & STATUS ---
-    
-    # A. UNIT HEAD
+    # A. UNIT HEAD — kunjungan pertama (cek awal, belum isi checked_by)
     if document.status == "Menunggu Unit Head" and current_user.role == "unit_head":
+        document.status = "Menunggu ISO"
+
+    # A2. UNIT HEAD — verifikasi akhir (setelah ISO beri nomor dokumen)
+    elif document.status == "Verifikasi Akhir Unit Head" and current_user.role == "unit_head":
         document.checked_by = current_user.full_name
         document.checked_date = date.today()
-        document.status = "Menunggu ISO"
-        
-    # B. DIVISION HEAD
+        document.status = "Menunggu Division Head"
+
+    # B. DIVISION HEAD — bisa jadi kunjungan pertama (DOP/EII) ATAU satu-satunya kunjungan (kategori lain)
     elif document.status == "Menunggu Division Head" and current_user.role == "division_head":
-        document.approved_by = current_user.full_name
-        document.approved_date = date.today()
-        
-        if document.category in ['WI', 'DOP', 'TM', 'CM', 'QMS_SP']:
+        if document.category in DIVISION_HEAD_SECOND_PASS_CATEGORIES:
+            # Kunjungan PERTAMA untuk DOP/EII — belum isi apa pun, teruskan ke ISO
+            document.status = "Menunggu ISO"
+        else:
+            # Satu-satunya kunjungan Division Head untuk WI/JB/QMS/TM/EMS/CM/QMS_SP
+            document.approved_by = current_user.full_name
+            document.approved_date = date.today()
+
+            if document.category in ['WI', 'TM', 'CM', 'QMS_SP']:
+                document.status = "Disetujui"
+            elif document.category == 'JB':
+                document.status = "Menunggu HRD"
+            elif document.category == 'QMS':
+                document.status = "Menunggu Mill Head"
+            elif document.category == 'EMS':
+                document.status = "Menunggu MR"
+            else:
+                document.status = "Disetujui"
+
+    # B2. DIVISION HEAD — verifikasi akhir (hanya untuk DOP/EII, setelah ISO beri nomor dokumen)
+    elif document.status == "Verifikasi Akhir Division Head" and current_user.role == "division_head":
+        if document.category == 'DOP':
+            document.checked_by = current_user.full_name
+            document.checked_date = date.today()
+            document.approved_by = current_user.full_name
+            document.approved_date = date.today()
             document.status = "Disetujui"
-        elif document.category == 'QMS':
-            document.status = "Menunggu Mill Head"
-        elif document.category == 'JB':
-            document.status = "Menunggu HRD"
-        elif document.category in ['EII', 'EMS']:
+        elif document.category == 'EII':
+            document.checked_by = current_user.full_name
+            document.checked_date = date.today()
             document.status = "Menunggu MR"
         else:
             document.status = "Disetujui"
-            
+
     # C. QMR / EMR / EnMR / SMR / KAHI
     elif current_user.role in ROLE_STATUS_LABEL and document.status == f"Menunggu {ROLE_STATUS_LABEL[current_user.role]}" and current_user.role != "mr":
         document.checked_by = current_user.full_name
@@ -653,7 +809,7 @@ def approve_document_by_leader(
         document.approved_date = date.today()
         document.status = "Disetujui"
 
-    # E. MILL HEAD — divalidasi harus divisi yang sama dengan pengaju dokumen
+    # E. MILL HEAD
     elif document.status == "Menunggu Mill Head" and current_user.role == "mill_head":
         owner = db.query(models.User).filter(models.User.user_id == document.user_id).first()
         if not owner or owner.division != current_user.division:
@@ -661,7 +817,13 @@ def approve_document_by_leader(
         document.approved_by = current_user.full_name
         document.approved_date = date.today()
         document.status = "Disetujui"
-        
+
+    # F. HRD — BARU: sebelumnya JB berhenti di "Menunggu HRD" tanpa ada yang bisa menyelesaikannya
+    elif document.status == "Menunggu HRD" and current_user.role == "hrd":
+        document.approved_by = current_user.full_name
+        document.approved_date = date.today()
+        document.status = "Disetujui"
+
     else:
         raise HTTPException(status_code=403, detail="Akses ditolak. Dokumen ini tidak sedang berada di antrean persetujuan Anda.")
 
@@ -670,7 +832,7 @@ def approve_document_by_leader(
     return document
 
 
-# 14. Endpoint untuk Penolakan Pimpinan (Reject / Kembalikan ke Revisi)
+# 17. Endpoint untuk Penolakan Pimpinan (Reject / Kembalikan ke Revisi)
 @router.put("/{document_id}/reject", response_model=schemas.DocumentResponse)
 def reject_document_by_leader(
     document_id: int, 

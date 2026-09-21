@@ -5,6 +5,9 @@ import { Search, ClipboardCheck, GitBranch, ChevronDown, Download, Eye, Plus, Pe
 import apiClient from '../api/axios';
 import Pagination from '../components/Pagination';
 import DocumentFilters from '../components/DocumentFilters';
+import SortableHeader from '../components/SortableHeader';
+import { getRoleLabel } from '../utils/roleLabels';
+import { getStatusStyle } from '../utils/statusStyles';
 
 export default function Dashboard() {
   const [documents, setDocuments] = useState([]);
@@ -22,6 +25,7 @@ export default function Dashboard() {
   const [isLoadingPreview, setIsLoadingPreview] = useState(false);
 
   const navigate = useNavigate();
+  const OTHERS_CATEGORIES = ['SOP', 'DOP', 'EII', 'JB', 'QMS', 'QMS_SP', 'TM', 'EMS', 'CM'];
 
   const [isRevisionModalOpen, setIsRevisionModalOpen] = useState(false);
   const [selectedRevisionDoc, setSelectedRevisionDoc] = useState(null);
@@ -34,21 +38,38 @@ export default function Dashboard() {
   const [totalPages, setTotalPages] = useState(1);
   const PAGE_SIZE = 10;
 
+  const [sortConfig, setSortConfig] = useState({ key: null, direction: 'desc' });
+
+  const [deleteTargetId, setDeleteTargetId] = useState(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
+
+  const handleSort = (key) => {
+    setSortConfig(prev => {
+      if (prev.key === key) return { key, direction: prev.direction === 'asc' ? 'desc' : 'asc' };
+      return { key, direction: 'asc' };
+    });
+  };
+
   useEffect(() => {
     setPage(1);
-  }, [searchQuery, category, statusFilter, startDate, endDate]);
+  }, [searchQuery, category, statusFilter, startDate, endDate, sortConfig]);
 
   // Auto-fetch dengan Debounce & Background Polling (5 Detik)
   useEffect(() => {
     const fetchFilteredDocuments = async (isBackground = false) => {
       if (!isBackground) setIsLoading(true);
       try {
-        const params = {};
+        const params = { page, page_size: PAGE_SIZE };
         if (searchQuery) params.search = searchQuery;
         if (category) params.category = category;
         if (statusFilter) params.status = statusFilter;
         if (startDate) params.start_date = startDate;
         if (endDate) params.end_date = endDate;
+        if (sortConfig.key) {
+          params.sort_by = sortConfig.key;
+          params.sort_dir = sortConfig.direction;
+        }
 
         const response = await apiClient.get('/documents', { params }); 
         setDocuments(response.data.items);
@@ -72,7 +93,7 @@ export default function Dashboard() {
       clearTimeout(delayDebounceFn);
       clearInterval(pollingInterval);
     };
-  }, [searchQuery, category, statusFilter, startDate, endDate, page]);
+   }, [searchQuery, category, statusFilter, startDate, endDate, page, sortConfig]);
 
   const handleResetFilters = () => {
     setSearchQuery('');
@@ -81,17 +102,6 @@ export default function Dashboard() {
     setStartDate('');
     setEndDate('');
     setPage(1);
-  };
-
-  const getStatusStyle = (status) => {
-    switch (status?.toLowerCase()) {
-      case 'disetujui': return 'bg-[#d1fae5] text-[#065f46]';
-      case 'menunggu': return 'bg-[#fef3c7] text-[#92400e]';
-      case 'direvisi': return 'bg-[#fee2e2] text-[#b91c1c]';
-      case 'direview': return 'bg-[#dbeafe] text-[#1e40af]';
-      case 'draft': return 'bg-gray-100 text-gray-600 border border-gray-200';
-      default: return 'bg-gray-100 text-gray-600';
-    }
   };
 
   const getCategoryIcon = (cat) => {
@@ -104,15 +114,20 @@ export default function Dashboard() {
     }
   };
 
-  const handleDelete = async (docId) => {
-    const confirmDelete = window.confirm("Apakah Anda yakin ingin menghapus dokumen ini secara permanen?");
-    if (!confirmDelete) return;
+  const handleDeleteClick = (docId) => {
+    setDeleteTargetId(docId);
+    setDeleteError('');
+    setShowDeleteConfirm(true);
+  };
 
+  const executeDelete = async () => {
     try {
-      await apiClient.delete(`/documents/${docId}`);
-      setDocuments(prevDocs => prevDocs.filter(doc => doc.document_id !== docId));
+      await apiClient.delete(`/documents/${deleteTargetId}`);
+      setDocuments(prevDocs => prevDocs.filter(doc => doc.document_id !== deleteTargetId));
+      setShowDeleteConfirm(false);
+      setDeleteTargetId(null);
     } catch (error) {
-      alert("Gagal menghapus dokumen. Pastikan server merespons dengan benar.");
+      setDeleteError(error.response?.data?.detail || "Gagal menghapus dokumen. Pastikan server merespons dengan benar.");
     }
   };
 
@@ -163,8 +178,7 @@ export default function Dashboard() {
   // Handler saat tombol Edit (Pencil) diklik
   const handleEditClick = async (doc) => {
     if (doc.status?.toLowerCase() === 'draft') {
-      // Jika Draft, langsung arahkan ke halaman edit
-      const path = ['NCR', 'DOP', 'JB', 'TM'].includes(doc.category?.toUpperCase()) ? `/others/${doc.document_id}` : `/wi/${doc.document_id}`;
+      const path = OTHERS_CATEGORIES.includes(doc.category?.toUpperCase()) ? `/others/${doc.document_id}` : `/wi/${doc.document_id}`;
       navigate(path);
     } else if (doc.status?.toLowerCase() === 'direvisi') {
       // Jika Direvisi, buka modal dan tarik catatan revisi dari backend
@@ -189,7 +203,7 @@ export default function Dashboard() {
   // Handler untuk melanjutkan ke halaman form setelah membaca catatan
   const handleProceedToEdit = () => {
     if (!selectedRevisionDoc) return;
-    const path = ['NCR', 'DOP', 'JB', 'TM'].includes(selectedRevisionDoc.category?.toUpperCase()) 
+    const path = OTHERS_CATEGORIES.includes(selectedRevisionDoc.category?.toUpperCase()) 
       ? `/others/${selectedRevisionDoc.document_id}` 
       : `/wi/${selectedRevisionDoc.document_id}`;
     navigate(path);
@@ -240,12 +254,12 @@ export default function Dashboard() {
         <table className="w-full text-sm text-center min-w-[800px]">
           <thead className="bg-[#f4f6f8] text-[#8c949c] text-xs font-bold uppercase tracking-wider">
             <tr>
-              <th className="px-5 py-4 rounded-tl-[20px]">Kategori Dokumen</th>
-              <th className="px-5 py-4">Judul</th>
+              <SortableHeader label="Kategori Dokumen" sortKey="category" sortConfig={sortConfig} onSort={handleSort} thClassName="rounded-tl-[20px]" />
+              <SortableHeader label="Judul" sortKey="title" sortConfig={sortConfig} onSort={handleSort} className="justify-center mx-auto" thClassName="text-center" />
               <th className="px-5 py-4">Initiator / Author</th>
-              <th className="px-5 py-4">No. Dokumen</th>
-              <th className="px-5 py-4 text-center">Status</th>
-              <th className="px-5 py-4">Diperbarui</th>
+              <SortableHeader label="No. Dokumen" sortKey="document_number" sortConfig={sortConfig} onSort={handleSort} />
+              <SortableHeader label="Status" sortKey="status" sortConfig={sortConfig} onSort={handleSort} className="justify-center mx-auto" thClassName="text-center" />
+              <SortableHeader label="Diperbarui" sortKey="updated_date" sortConfig={sortConfig} onSort={handleSort} />
               <th className="px-5 py-4 text-center rounded-tr-[20px]">Aksi</th>
             </tr>
           </thead>
@@ -281,10 +295,17 @@ export default function Dashboard() {
                     </div>
                   </td>
                   <td className="px-5 py-4 align-middle">
-                    <div className="flex justify-center">
-                      <span className={`px-4 py-1.5 rounded-full text-xs font-bold w-24 inline-block text-center shadow-sm ${getStatusStyle(doc.status)}`}>
+                    <div className="flex justify-center relative group">
+                      <span className={`px-4 py-1.5 rounded-full text-xs font-bold w-24 inline-block text-center shadow-sm cursor-default ${getStatusStyle(doc.status)}`}>
                         {doc.status || 'Menunggu'}
                       </span>
+                      {doc.status === 'Direvisi' && (
+                        <div className="absolute bottom-full mb-2 hidden group-hover:block w-max bg-white text-gray-600 text-xs font-medium py-2 px-3 rounded-lg shadow-[0_4px_12px_rgba(0,0,0,0.12)] border border-gray-100 z-20 transition-all">
+                          Ditolak oleh <span className="font-bold text-red-600">{doc.last_revision_by || 'Tidak diketahui'}</span>
+                          {doc.last_revision_by_role && <span className="text-gray-400"> ({getRoleLabel(doc.last_revision_by_role)})</span>}
+                          <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-white drop-shadow-sm"></div>
+                        </div>
+                      )}
                     </div>
                   </td>
                   <td className="px-5 py-4 text-gray-600 text-xs">
@@ -330,11 +351,11 @@ export default function Dashboard() {
                           </button>
                         ) : null}
 
-                        {(doc.status?.toLowerCase() === 'draft' || doc.status?.toLowerCase() === 'menunggu') && (
+                        {(doc.status === 'Draft' || doc.status === 'Menunggu Unit Head' || doc.status === 'Menunggu Division Head' || (doc.status === 'Menunggu ISO' && doc.category === 'SOP')) && (
                           <>
                             <div className="w-[1px] h-4 bg-gray-200 mx-1"></div>
                             <button 
-                              onClick={() => handleDelete(doc.document_id)}
+                              onClick={() => handleDeleteClick(doc.document_id)}
                               className="text-gray-500 hover:text-red-600 hover:bg-red-50 p-1.5 rounded-lg transition-colors" 
                               title="Hapus Dokumen"
                             >
@@ -458,6 +479,42 @@ export default function Dashboard() {
             </div>
           </div>
         )}
+        {/* =========================================
+          Modal Konfirmasi Hapus 
+        ========================================= */}
+        {showDeleteConfirm && (
+          <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/40 backdrop-blur-sm px-4">
+            <div className="bg-white rounded-2xl w-full max-w-sm p-6 shadow-2xl relative text-center animate-in zoom-in-95 duration-200">
+              <div className="w-16 h-16 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                <Trash2 size={32} />
+              </div>
+              <h3 className="text-xl font-black text-gray-800 mb-2">Hapus Dokumen?</h3>
+              <p className="text-sm text-gray-500 mb-2">
+                Dokumen akan dihapus secara permanen dan tidak dapat dikembalikan.
+              </p>
+              {deleteError && (
+                <p className="text-xs text-red-600 font-semibold bg-red-50 border border-red-100 rounded-lg py-2 px-3 mb-4">
+                  {deleteError}
+                </p>
+              )}
+              <div className="flex justify-center gap-3 mt-4">
+                <button 
+                  onClick={() => { setShowDeleteConfirm(false); setDeleteTargetId(null); setDeleteError(''); }} 
+                  className="px-5 py-2.5 text-sm font-bold text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-xl transition-colors w-full"
+                >
+                  Batal
+                </button>
+                <button 
+                  onClick={executeDelete} 
+                  className="px-5 py-2.5 text-sm font-bold text-white bg-red-600 hover:bg-red-700 rounded-xl transition-colors w-full"
+                >
+                  Ya, Hapus
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
       </div>
     </div>
   );

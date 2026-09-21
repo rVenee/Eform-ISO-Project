@@ -3,6 +3,7 @@ import { Search, Plus, Pencil, Trash2, Key, ShieldCheck, User as UserIcon, X, Al
 import { ALL_SECTIONS, SECTION_TO_DIVISION, DIVISIONS } from '../data/sectionDivisionMap';
 import apiClient from '../api/axios';
 import Pagination from '../components/Pagination';
+import { getRoleLabel } from '../utils/roleLabels';
 
 function SectionCombobox({ value, onChange, disabled }) {
   const [query, setQuery] = useState(value || '');
@@ -244,26 +245,7 @@ export default function ITAdminDashboard() {
       ? <ArrowUp size={12} className="text-[#126863]" />
       : <ArrowDown size={12} className="text-[#126863]" />;
   };
-
-  const getRoleLabel = (role) => {
-    const labels = {
-      admin_iso: 'Unit ISO',
-      admin_it: 'Admin IT',
-      unit_head: 'Unit Head',
-      division_head: 'Div Head',
-      qmr: 'QMR',
-      emr: 'EMR',
-      enmr: 'EnMR',
-      smr: 'SMR',
-      kahi: 'KAHI',
-      mr: 'MR',
-      hrd: 'HRD',
-      mill_head: 'Mill Head',
-      applicator: 'Applicator'
-    };
-    return labels[role] || role;
-  };
-
+  
   const ROLE_OPTIONS = [
     { value: 'all', label: 'Semua Role' },
     { value: 'applicator', label: 'Applicator' },

@@ -11,6 +11,7 @@ export default function FormWI() {
   const [status, setStatus] = useState({ type: '', message: '' });
   const [showConfirm, setShowConfirm] = useState(false);
   const [showAttachmentAlert, setShowAttachmentAlert] = useState(false);
+  const [errors, setErrors] = useState({});
 
   // State Utama Form Dinamis
   const [formData, setFormData] = useState({
@@ -152,40 +153,44 @@ export default function FormWI() {
 
   // --- VALIDASI PRE-SUBMIT ---
   const handlePreSubmit = () => {
-    // Validasi Field Teks Dasar
-    if (!formData.creator_name?.trim() || !formData.judul.trim() || !formData.tujuan.trim() || !formData.ruang_lingkup.trim()) {
-      alert("⚠️ Harap lengkapi field wajib: Initiator, Judul, Tujuan, dan Ruang Lingkup.");
-      return;
-    }
+    const newErrors = {};
 
-    // Validasi Langkah Kerja (Minimal 1 terisi)
+    if (!formData.creator_name?.trim()) newErrors.creator_name = 'Initiator wajib diisi.';
+    if (!formData.judul.trim()) newErrors.judul = 'Judul Instruksi Kerja wajib diisi.';
+    if (!formData.tujuan.trim()) newErrors.tujuan = 'Tujuan wajib diisi.';
+    if (!formData.ruang_lingkup.trim()) newErrors.ruang_lingkup = 'Ruang Lingkup wajib diisi.';
+
     const hasLangkahKerja = formData.langkah_kerja.some(l => l.deskripsi.trim() !== '');
-    if (!hasLangkahKerja) {
-      alert("⚠️ Harap isi setidaknya satu Langkah Kerja Utama.");
-      return;
-    }
+    if (!hasLangkahKerja) newErrors.langkah_kerja = 'Harap isi setidaknya satu Langkah Kerja Utama.';
 
-    // Validasi Kesehatan & Keselamatan Kerja (Minimal 1 terisi)
     const hasKesehatan = formData.kesehatan_kerja.some(k => k.deskripsi.trim() !== '');
+    if (!hasKesehatan) newErrors.kesehatan_kerja = 'Harap isi setidaknya satu poin Kesehatan Kerja.';
+
     const hasKeselamatan = formData.keselamatan_kerja.some(k => k.deskripsi.trim() !== '');
-    
-    if (!hasKesehatan) {
-      alert("⚠️ Harap isi setidaknya satu poin Kesehatan Kerja.");
-      return;
-    }
-    if (!hasKeselamatan) {
-      alert("⚠️ Harap isi setidaknya satu poin Keselamatan Kerja.");
-      return;
-    }
+    if (!hasKeselamatan) newErrors.keselamatan_kerja = 'Harap isi setidaknya satu poin Keselamatan Kerja.';
 
     const hasDokumenTerkait = formData.dokumen_terkait.some(d => d.nomor.trim() !== '' && d.deskripsi.trim() !== '');
-    if (!hasDokumenTerkait) {
-      alert("⚠️ Harap isi setidaknya satu Dokumen Terkait (Nomor dan Deskripsi).");
+    if (!hasDokumenTerkait) newErrors.dokumen_terkait = 'Harap isi setidaknya satu Dokumen Terkait (Nomor dan Deskripsi).';
+
+    setErrors(newErrors);
+
+    if (Object.keys(newErrors).length > 0) {
+      const firstErrorKey = Object.keys(newErrors)[0];
+      const el = document.getElementById(`field-${firstErrorKey}`);
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
       return;
     }
 
-    // Jika semua validasi lolos, munculkan modal konfirmasi
     setShowConfirm(true);
+  };
+
+  const ErrorText = ({ message }) => {
+    if (!message) return null;
+    return (
+      <p className="text-xs text-red-600 font-semibold mt-1.5 flex items-center gap-1.5">
+        <AlertCircle size={13} /> {message}
+      </p>
+    );
   };
 
   // --- SUBMIT HANDLER ---
@@ -294,32 +299,34 @@ export default function FormWI() {
               
               <div className="space-y-5">
                 {/* 1. Input Initiator (Wajib Diisi) */}
-                <div>
+                <div id="field-creator_name">
                   <label className="block text-sm font-bold text-gray-500 mb-2">Initiator (Disiapkan Oleh) <span className="text-red-500">*</span></label>
                   <input 
                     type="text" 
                     value={formData.creator_name || ''}
-                    onChange={(e) => handleBasicChange('creator_name', e.target.value)}
+                    onChange={(e) => { handleBasicChange('creator_name', e.target.value); if (errors.creator_name) setErrors(prev => ({ ...prev, creator_name: undefined })); }}
                     placeholder="Nama lengkap inisiator pembuat dokumen..." 
-                    className="w-full px-4 py-3.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-[#126863] text-gray-700"
-                    required
+                    className={`w-full px-4 py-3.5 border rounded-xl text-sm focus:outline-none focus:ring-1 text-gray-700 ${errors.creator_name ? 'border-red-400 focus:ring-red-400' : 'border-gray-200 focus:ring-[#126863]'}`}
                   />
+                  <ErrorText message={errors.creator_name} />
                 </div>
 
                 {/* 2. Input Judul Dokumen */}
-                <div>
+                <div id="field-judul">
                   <label className="block text-sm font-bold text-gray-500 mb-2">Judul Instruksi Kerja <span className="text-red-500">*</span></label>
                   <input 
                     type="text" 
                     maxLength={65}
                     value={formData.judul}
-                    onChange={(e) => handleBasicChange('judul', e.target.value)}
+                    onChange={(e) => { handleBasicChange('judul', e.target.value); if (errors.judul) setErrors(prev => ({ ...prev, judul: undefined })); }}
                     placeholder="Contoh: Prosedur Pengoperasian Mesin Potong" 
-                    className="w-full px-4 py-3.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-[#126863] text-gray-700"
-                    required
+                    className={`w-full px-4 py-3.5 border rounded-xl text-sm focus:outline-none focus:ring-1 text-gray-700 ${errors.judul ? 'border-red-400 focus:ring-red-400' : 'border-gray-200 focus:ring-[#126863]'}`}
                   />
-                  <div className="text-right text-xs mt-1.5 font-medium text-gray-400">
-                    {formData.judul.length} / 65 karakter maksimal
+                  <div className="flex justify-between items-start mt-1.5">
+                    <ErrorText message={errors.judul} />
+                    <div className="text-right text-xs font-medium text-gray-400 ml-auto shrink-0">
+                      {formData.judul.length} / 65 karakter maksimal
+                    </div>
                   </div>
                 </div>
               </div>
@@ -337,13 +344,16 @@ export default function FormWI() {
             <div className="flex-1">
               <h2 className="text-[22px] font-bold text-[#126863] leading-none mb-1">Tujuan</h2>
               <p className="text-sm text-gray-400 mb-6">Jelaskan tujuan dari instruksi kerja ini.</p>
-              <textarea 
-                rows="3"
-                value={formData.tujuan}
-                onChange={(e) => handleBasicChange('tujuan', e.target.value)}
-                placeholder="Tuliskan tujuan disini..." 
-                className="w-full px-4 py-3.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-[#126863] text-gray-700 resize-none"
-              ></textarea>
+              <div id="field-tujuan">
+                <textarea 
+                  rows="3"
+                  value={formData.tujuan}
+                  onChange={(e) => { handleBasicChange('tujuan', e.target.value); if (errors.tujuan) setErrors(prev => ({ ...prev, tujuan: undefined })); }}
+                  placeholder="Tuliskan tujuan disini..." 
+                  className={`w-full px-4 py-3.5 border rounded-xl text-sm focus:outline-none focus:ring-1 text-gray-700 resize-none ${errors.tujuan ? 'border-red-400 focus:ring-red-400' : 'border-gray-200 focus:ring-[#126863]'}`}
+                ></textarea>
+                <ErrorText message={errors.tujuan} />
+              </div>
             </div>
           </div>
 
@@ -357,13 +367,16 @@ export default function FormWI() {
             <div className="flex-1">
               <h2 className="text-[22px] font-bold text-[#126863] leading-none mb-1">Ruang Lingkup</h2>
               <p className="text-sm text-gray-400 mb-6">Area atau cakupan berlakunya instruksi kerja ini</p>
-              <input 
-                type="text" 
-                value={formData.ruang_lingkup}
-                onChange={(e) => handleBasicChange('ruang_lingkup', e.target.value)}
-                placeholder="Contoh: Seluruh atap under paper area" 
-                className="w-full px-4 py-3.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-[#126863] text-gray-700"
-              />
+              <div id="field-ruang_lingkup">
+                <input 
+                  type="text" 
+                  value={formData.ruang_lingkup}
+                  onChange={(e) => { handleBasicChange('ruang_lingkup', e.target.value); if (errors.ruang_lingkup) setErrors(prev => ({ ...prev, ruang_lingkup: undefined })); }}
+                  placeholder="Contoh: Seluruh atap under paper area" 
+                  className={`w-full px-4 py-3.5 border rounded-xl text-sm focus:outline-none focus:ring-1 text-gray-700 ${errors.ruang_lingkup ? 'border-red-400 focus:ring-red-400' : 'border-gray-200 focus:ring-[#126863]'}`}
+                />
+                <ErrorText message={errors.ruang_lingkup} />
+              </div>
             </div>
           </div>
 
@@ -377,7 +390,7 @@ export default function FormWI() {
             <div className="flex-1">
               <h2 className="text-[22px] font-bold text-[#126863] leading-none mb-1">Langkah Kerja</h2>
               <p className="text-sm text-gray-400 mb-8">Uraikan setiap langkah kerja</p>
-
+              <ErrorText message={errors.langkah_kerja} />
               <div className="space-y-8">
                 {formData.langkah_kerja.map((langkah, lIndex) => (
                   <div key={lIndex} className="space-y-4">
@@ -437,11 +450,12 @@ export default function FormWI() {
             <div className="flex-1">
               <h2 className="text-[22px] font-bold text-[#126863] leading-none mb-1">Kesehatan & Keselamatan Kerja</h2>
               <p className="text-sm text-gray-400 mb-8">Uraikan poin-poin kesehatan dan keselamatan kerja</p>
-              
+
               <div className="space-y-8">
                 {/* 4.1 Kesehatan */}
                 <div>
                   <h3 className="font-bold text-gray-600 mb-4">4.1 Kesehatan Kerja</h3>
+                  <ErrorText message={errors.kesehatan_kerja} />
                   {formData.kesehatan_kerja.map((item, index) => (
                     <div key={index} className="flex items-start gap-4 mb-4">
                       <span className="text-sm font-bold text-[#126863] pt-3.5 w-10">4.1.{index + 1}</span>
@@ -465,6 +479,7 @@ export default function FormWI() {
                 {/* 4.2 Keselamatan */}
                 <div>
                   <h3 className="font-bold text-gray-600 mb-4">4.2 Keselamatan Kerja</h3>
+                  <ErrorText message={errors.keselamatan_kerja} />
                   {formData.keselamatan_kerja.map((item, index) => (
                     <div key={index} className="flex items-start gap-4 mb-4">
                       <span className="text-sm font-bold text-[#126863] pt-3.5 w-10">4.2.{index + 1}</span>
@@ -498,7 +513,7 @@ export default function FormWI() {
             <div className="flex-1">
               <h2 className="text-[22px] font-bold text-[#126863] leading-none mb-1">Dokumen Terkait</h2>
               <p className="text-sm text-gray-400 mb-8">Cantumkan dokumen terkait</p>
-              
+              <ErrorText message={errors.dokumen_terkait} />
               <div className="space-y-4">
                 {formData.dokumen_terkait.map((doc, index) => (
                   <div key={index} className="flex items-start gap-4">
@@ -514,7 +529,7 @@ export default function FormWI() {
                       type="text" 
                       value={doc.deskripsi}
                       onChange={(e) => handleArrayChange('dokumen_terkait', index, 'deskripsi', e.target.value)}
-                      placeholder="Deskripsi Dokumen" 
+                      placeholder="Job Description" 
                       className="flex-1 px-4 py-3.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-[#126863]" 
                     />
                     <button type="button" onClick={() => removeArrayItem('dokumen_terkait', index)} className="h-[50px] w-[50px] flex items-center justify-center border border-gray-200 rounded-xl text-gray-400 hover:bg-red-50 hover:text-red-500 hover:border-red-200 shrink-0">
@@ -606,7 +621,7 @@ export default function FormWI() {
               className="flex items-center gap-2 px-6 py-3.5 bg-[#126863] text-white rounded-xl font-bold text-sm hover:bg-[#0d4f4c] shadow-sm transition-colors disabled:opacity-70"
             >
               <Send size={18} strokeWidth={2.5} />
-              Submit ke Unit ISO
+              Kirim ke Unit Head
             </button>
           </div>
         </form>
@@ -621,7 +636,7 @@ export default function FormWI() {
           <div className="bg-white rounded-[20px] w-full max-w-md p-7 shadow-2xl">
             <h3 className="text-xl font-black text-[#126863] mb-3">Konfirmasi Pengiriman</h3>
             <p className="text-sm text-gray-600 mb-6 leading-relaxed">
-              Dokumen akan masuk ke antrean <strong>Unit ISO</strong> dan tidak dapat diedit kembali kecuali statusnya dikembalikan menjadi Direvisi.
+              Dokumen akan masuk ke antrean <strong>Unit Head</strong> dan tidak dapat diedit kembali kecuali statusnya dikembalikan menjadi Direvisi.
               <br /><br />
               <span className="p-3 bg-[#f0f7f7] border border-[#126863]/20 rounded-lg block text-[#126863]">
                 <strong>💡 Tips:</strong> Ingin memastikan PDF sudah rapi? Pilih <strong>Batal</strong>, klik <strong>Simpan Draft</strong>, lalu gunakan ikon mata di Riwayat Saya untuk melihat pratinjau.

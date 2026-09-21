@@ -19,7 +19,9 @@ export const OTHER_CATEGORY_OPTIONS = [
 export const STATUS_OPTIONS = [
   { value: 'Draft', label: 'Draft' },
   { value: 'Menunggu Unit Head', label: 'Menunggu Unit Head' },
+  { value: 'Verifikasi Akhir Unit Head', label: 'Verifikasi Akhir Unit Head' },
   { value: 'Menunggu Division Head', label: 'Menunggu Division Head' },
+  { value: 'Verifikasi Akhir Division Head', label: 'Verifikasi Akhir Division Head' },
   { value: 'Menunggu ISO', label: 'Menunggu ISO' },
   { value: 'Menunggu QMR', label: 'Menunggu QMR' },
   { value: 'Menunggu EMR', label: 'Menunggu EMR' },

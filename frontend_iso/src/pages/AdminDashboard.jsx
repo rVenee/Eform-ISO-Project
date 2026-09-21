@@ -4,6 +4,9 @@ import { Search, ClipboardCheck, GitBranch, ChevronDown, Download, FileText, Fol
 import apiClient from '../api/axios';
 import Pagination from '../components/Pagination';
 import DocumentFilters from '../components/DocumentFilters';
+import SortableHeader from '../components/SortableHeader';
+import { getRoleLabel } from '../utils/roleLabels';
+import { getStatusStyle } from '../utils/statusStyles';
 
 export default function AdminDashboard() {
   const [documents, setDocuments] = useState([]);
@@ -23,7 +26,15 @@ export default function AdminDashboard() {
 
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
+  const [sortConfig, setSortConfig] = useState({ key: null, direction: 'desc' });
   const PAGE_SIZE = 10;
+
+  const handleSort = (key) => {
+    setSortConfig(prev => {
+      if (prev.key === key) return { key, direction: prev.direction === 'asc' ? 'desc' : 'asc' };
+      return { key, direction: 'asc' };
+    });
+  };
 
   // Fungsi Fetch Data yang bisa dipanggil kapan saja
   const fetchFilteredDocuments = useCallback(async (showLoading = true) => {
@@ -35,6 +46,10 @@ export default function AdminDashboard() {
       if (statusFilter) params.status = statusFilter;
       if (startDate) params.start_date = startDate;
       if (endDate) params.end_date = endDate;
+      if (sortConfig.key) {
+        params.sort_by = sortConfig.key;
+        params.sort_dir = sortConfig.direction;
+      }
 
       const response = await apiClient.get('/documents', { params }); 
       setDocuments(response.data.items);
@@ -44,11 +59,11 @@ export default function AdminDashboard() {
     } finally {
       if (showLoading) setIsLoading(false);
     }
-  }, [searchQuery, category, statusFilter, startDate, endDate, page]);
+  }, [searchQuery, category, statusFilter, startDate, endDate, page, sortConfig]);
 
   useEffect(() => {
     setPage(1);
-  }, [searchQuery, category, statusFilter, startDate, endDate]);
+  }, [searchQuery, category, statusFilter, startDate, endDate, sortConfig]);
 
   // Efek 1: Fetch saat filter berubah (dengan Debounce)
   useEffect(() => {
@@ -98,33 +113,6 @@ export default function AdminDashboard() {
       alert("Gagal mengunduh dokumen. Pastikan server merespons dengan benar.");
     } finally {
       setDownloadingId(null);
-    }
-  };
-
-  const getStatusStyle = (status) => {
-    switch (status) {
-      case 'Disetujui':
-        return 'bg-[#d1fae5] text-[#065f46]';
-      case 'Direvisi':
-        return 'bg-[#fee2e2] text-[#b91c1c]';
-      case 'Direview':
-        return 'bg-[#dbeafe] text-[#1e40af]';
-      case 'Draft':
-        return 'bg-gray-100 text-gray-600';
-      case 'Menunggu Unit Head':
-      case 'Menunggu Division Head':
-      case 'Menunggu ISO':
-      case 'Menunggu QMR':
-      case 'Menunggu EMR':
-      case 'Menunggu EnMR':
-      case 'Menunggu SMR':
-      case 'Menunggu KAHI':
-      case 'Menunggu MR':
-      case 'Menunggu HRD':
-      case 'Menunggu Mill Head':
-        return 'bg-[#fef3c7] text-[#92400e]';
-      default:
-        return 'bg-gray-100 text-gray-500';
     }
   };
 
@@ -194,12 +182,12 @@ export default function AdminDashboard() {
         <table className="w-full text-sm text-center min-w-[900px]">
           <thead className="bg-[#f4f6f8] text-[#8c949c] text-xs font-bold uppercase tracking-wider">
             <tr>
-              <th className="px-5 py-4 rounded-tl-[20px]">Kategori</th>
-              <th className="px-5 py-4">Judul</th>
+              <SortableHeader label="Kategori" sortKey="category" sortConfig={sortConfig} onSort={handleSort} thClassName="rounded-tl-[20px]" />
+              <SortableHeader label="Judul" sortKey="title" sortConfig={sortConfig} onSort={handleSort} className="justify-center mx-auto" thClassName="text-center" />
               <th className="px-5 py-4">Pengaju / Seksi</th>
-              <th className="px-5 py-4">No. Dokumen</th>
-              <th className="px-5 py-4 text-center">Status</th>
-              <th className="px-5 py-4">Dikirim</th>
+              <SortableHeader label="No. Dokumen" sortKey="document_number" sortConfig={sortConfig} onSort={handleSort} />
+              <SortableHeader label="Status" sortKey="status" sortConfig={sortConfig} onSort={handleSort} className="justify-center mx-auto" thClassName="text-center" />
+              <SortableHeader label="Dikirim" sortKey="created_date" sortConfig={sortConfig} onSort={handleSort} />
               <th className="px-5 py-4 text-center rounded-tr-[20px]">Aksi</th>
             </tr>
           </thead>
@@ -229,6 +217,14 @@ export default function AdminDashboard() {
                       {doc.status === 'Direview' && (
                         <div className="absolute bottom-full mb-2 hidden group-hover:block w-max bg-white text-gray-600 text-xs font-medium py-2 px-3 rounded-lg shadow-[0_4px_12px_rgba(0,0,0,0.12)] border border-gray-100 z-20 transition-all">
                           Sedang direview oleh <span className="font-bold text-[#126863]">{doc.locked_by_name || 'Admin lain'}</span>
+                          <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-white drop-shadow-sm"></div>
+                        </div>
+                      )}
+
+                      {doc.status === 'Direvisi' && (
+                        <div className="absolute bottom-full mb-2 hidden group-hover:block w-max bg-white text-gray-600 text-xs font-medium py-2 px-3 rounded-lg shadow-[0_4px_12px_rgba(0,0,0,0.12)] border border-gray-100 z-20 transition-all">
+                          Ditolak oleh <span className="font-bold text-red-600">{doc.last_revision_by || 'Tidak diketahui'}</span>
+                          {doc.last_revision_by_role && <span className="text-gray-400"> ({getRoleLabel(doc.last_revision_by_role)})</span>}
                           <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-white drop-shadow-sm"></div>
                         </div>
                       )}

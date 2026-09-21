@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, CheckCircle2, RotateCcw, XCircle, Download, UploadCloud, FileText, X, Check } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, RotateCcw, XCircle, Download, UploadCloud, FileText, X, Check, AlertCircle } from 'lucide-react';
 import apiClient from '../api/axios';
 
 let strictModeTimeout;
@@ -18,8 +18,6 @@ export default function ReviewDokumen() {
     document_number: '',
     revision_number: '',
     effective_date: '',
-    checked_by: '',
-    approved_by: '',
     final_pdf_file: null, 
     final_pdf_name: ''
   });
@@ -27,6 +25,8 @@ export default function ReviewDokumen() {
   // State Modal Revisi
   const [showRevisionModal, setShowRevisionModal] = useState(false);
   const [revisionNotes, setRevisionNotes] = useState('');
+  const [revisionError, setRevisionError] = useState('');
+  const [showRevisionConfirm, setShowRevisionConfirm] = useState(false);
 
   // State Modal Preview Final
   const [showFinalModal, setShowFinalModal] = useState(false);
@@ -50,9 +50,7 @@ export default function ReviewDokumen() {
           ...prev,
           document_number: res.data.metadata.document_number || '',
           revision_number: formattedRevision, 
-          effective_date: res.data.metadata.effective_date || '',
-          checked_by: res.data.metadata.checked_by || '',
-          approved_by: res.data.metadata.approved_by || ''
+          effective_date: res.data.metadata.effective_date || ''
         }));
 
         const category = res.data.metadata.category?.toUpperCase();
@@ -102,6 +100,22 @@ export default function ReviewDokumen() {
     }
   };
 
+  const handleDownloadRaw = async () => {
+    try {
+      const res = await apiClient.get(`/documents/${id}/download-raw`, { responseType: 'blob' });
+      const url = window.URL.createObjectURL(new Blob([res.data]));
+      const link = window.document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', document?.title ? `${document.title}.docx` : 'dokumen_mentah.docx');
+      window.document.body.appendChild(link);
+      link.click();
+      link.parentNode.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      alert(error.response?.data?.detail || "Gagal mengunduh dokumen mentah.");
+    }
+  };
+
   const isOthersDocument = document && document.category?.toUpperCase() !== 'WI';
 
   // --- API HANDLERS ---
@@ -117,8 +131,8 @@ export default function ReviewDokumen() {
 
   // FUNGSI 1: Mempersiapkan Pratinjau Final
   const handlePrepareFinalPreview = async () => {
-    if (!formData.document_number || !formData.revision_number || !formData.effective_date || !formData.checked_by || !formData.approved_by) {
-      alert("Harap lengkapi seluruh Detail Administrasi (Bintang Merah) sebelum menyetujui dokumen.");
+    if (!formData.document_number || !formData.revision_number || !formData.effective_date) {
+      alert("Harap lengkapi Nomor Dokumen dan Tanggal Efektif sebelum menyetujui dokumen.");
       return;
     }
 
@@ -129,16 +143,13 @@ export default function ReviewDokumen() {
 
     setIsGeneratingFinal(true);
     try {
-      // Simpan sementara detail administrasi ke backend agar PDF baru terisi
       await apiClient.put(`/documents/${id}`, {
         category: document.category,
         title: document.title,
         document_number: formData.document_number,
         revision_number: formData.revision_number,
         effective_date: formData.effective_date,
-        checked_by: formData.checked_by,
-        approved_by: formData.approved_by,
-        status: 'Direview' // Biarkan status tetap direview
+        status: 'Direview'
       });
 
       if (isOthersDocument) {
@@ -190,12 +201,17 @@ export default function ReviewDokumen() {
     }
   };
 
-  const handleSubmitRevision = async () => {
+  const handleRevisionClick = () => {
     if (!revisionNotes.trim()) {
-      alert("Catatan revisi wajib diisi!");
+      setRevisionError('Catatan revisi wajib diisi!');
       return;
     }
+    setRevisionError('');
+    setShowRevisionConfirm(true);
+  };
 
+  const executeSubmitRevision = async () => {
+    setShowRevisionConfirm(false);
     setIsLoading(true);
     try {
       await apiClient.put(`/documents/${id}/review`, {
@@ -229,11 +245,11 @@ export default function ReviewDokumen() {
                 <FileText size={40} />
               </div>
               <h2 className="text-2xl font-bold text-gray-800 mb-2">Dokumen Eksternal ({document.category})</h2>
-              <p className="text-gray-500 max-w-md mb-8">
+              <p className="text-gray-500 max-w-md mb-6">
                 Dokumen ini tidak menggunakan E-Form. Silakan unduh dokumen mentah (Word), lengkapi secara manual, ubah menjadi PDF, lalu unggah kembali versi finalnya.
               </p>
-              
-              <button className="flex items-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-sm transition-colors mb-10">
+
+              <button onClick={handleDownloadRaw} className="flex items-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-sm transition-colors mb-10">
                 <Download size={18} /> Unduh Dokumen Mentah (Word)
               </button>
 
@@ -299,14 +315,6 @@ export default function ReviewDokumen() {
             <div>
               <label className="block text-xs font-bold text-gray-600 mb-1.5">Tanggal Efektif <span className="text-red-500">*</span></label>
               <input type="date" value={formData.effective_date} onChange={(e) => handleInputChange('effective_date', e.target.value)} className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:ring-1 focus:ring-[#126863] focus:border-[#126863] outline-none" required />
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-gray-600 mb-1.5">Diperiksa Oleh <span className="text-red-500">*</span></label>
-              <input type="text" value={formData.checked_by} onChange={(e) => handleInputChange('checked_by', e.target.value)} className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:ring-1 focus:ring-[#126863] focus:border-[#126863] outline-none" required />
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-gray-600 mb-1.5">Disetujui Oleh <span className="text-red-500">*</span></label>
-              <input type="text" value={formData.approved_by} onChange={(e) => handleInputChange('approved_by', e.target.value)} className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:ring-1 focus:ring-[#126863] focus:border-[#126863] outline-none" required />
             </div>
           </div>
 
@@ -393,17 +401,49 @@ export default function ReviewDokumen() {
             
             <textarea 
               value={revisionNotes}
-              onChange={(e) => setRevisionNotes(e.target.value)}
+              onChange={(e) => { setRevisionNotes(e.target.value); if (revisionError) setRevisionError(''); }}
               placeholder="Tulis disini..." 
-              className="w-full h-32 px-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#126863]/50 focus:border-[#126863] resize-none mb-6"
+              className={`w-full h-32 px-4 py-3 border rounded-xl text-sm focus:outline-none focus:ring-2 resize-none mb-1.5 ${
+                revisionError ? 'border-red-400 focus:ring-red-400' : 'border-gray-200 focus:ring-[#126863]/50 focus:border-[#126863]'
+              }`}
             ></textarea>
+            {revisionError && (
+              <p className="text-xs text-red-600 font-semibold mb-4 flex items-center gap-1.5">
+                <AlertCircle size={13} /> {revisionError}
+              </p>
+            )}
             
-            <div className="flex justify-end gap-3">
-              <button onClick={() => setShowRevisionModal(false)} className="flex items-center gap-2 px-6 py-2.5 text-sm font-bold text-gray-600 border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors">
+            <div className="flex justify-end gap-3 mt-3">
+              <button onClick={() => { setShowRevisionModal(false); setRevisionError(''); }} className="flex items-center gap-2 px-6 py-2.5 text-sm font-bold text-gray-600 border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors">
                 <XCircle size={16} /> Batal
               </button>
-              <button onClick={handleSubmitRevision} className="flex items-center gap-2 px-6 py-2.5 text-sm font-bold text-white bg-[#126863] rounded-xl hover:bg-[#0d4f4c] shadow-sm transition-colors">
+              <button onClick={handleRevisionClick} className="flex items-center gap-2 px-6 py-2.5 text-sm font-bold text-white bg-[#126863] rounded-xl hover:bg-[#0d4f4c] shadow-sm transition-colors">
                 <RotateCcw size={16} /> Kirim Revisi
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* =========================================
+          Modal Konfirmasi Kirim Revisi
+      ========================================= */}
+      {showRevisionConfirm && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 backdrop-blur-sm px-4">
+          <div className="bg-white rounded-[20px] w-full max-w-sm p-7 shadow-2xl text-center">
+            <div className="w-16 h-16 bg-amber-100 text-amber-600 rounded-full flex items-center justify-center mx-auto mb-4">
+              <RotateCcw size={32} />
+            </div>
+            <h3 className="text-xl font-black text-gray-800 mb-2">Konfirmasi Pengembalian</h3>
+            <p className="text-sm text-gray-500 mb-6 leading-relaxed">
+              Dokumen akan dikembalikan ke pengaju untuk direvisi berdasarkan catatan yang sudah Anda tulis.
+            </p>
+            <div className="flex justify-center gap-3">
+              <button onClick={() => setShowRevisionConfirm(false)} className="px-5 py-2.5 text-sm font-bold text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-xl transition-colors w-full">
+                Batal
+              </button>
+              <button onClick={executeSubmitRevision} className="px-5 py-2.5 text-sm font-bold text-white bg-[#126863] hover:bg-[#0d4f4c] rounded-xl transition-colors w-full">
+                Ya, Kembalikan
               </button>
             </div>
           </div>

@@ -1,8 +1,11 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Search, ClipboardCheck, X, FileText, GitBranch, Folder, LayoutGrid, ChevronDown, CheckCircle, AlertTriangle, Loader2, Download, Eye } from 'lucide-react';
 import apiClient from '../api/axios';
 import Pagination from '../components/Pagination';
 import DocumentFilters from '../components/DocumentFilters';
+import SortableHeader from '../components/SortableHeader';
+import { getRoleLabel } from '../utils/roleLabels';
+import { getStatusStyle as getBaseStatusStyle } from '../utils/statusStyles';
 
 export default function HeadDashboard({ mode }) {
   const [documents, setDocuments] = useState([]);
@@ -23,20 +26,53 @@ export default function HeadDashboard({ mode }) {
   const [isPdfLoading, setIsPdfLoading] = useState(false);
   const [showRejectInput, setShowRejectInput] = useState(false);
   const [rejectNotes, setRejectNotes] = useState('');
+  const [rejectError, setRejectError] = useState('');
+  const [showRejectConfirm, setShowRejectConfirm] = useState(false);
   const [showApproveConfirm, setShowApproveConfirm] = useState(false);
+  const reviewDocRef = useRef(null);
+
+  useEffect(() => { reviewDocRef.current = reviewDoc; }, [reviewDoc]);
+
+  useEffect(() => {
+    const handleTabClose = () => {
+      const doc = reviewDocRef.current;
+      if (!doc) return;
+      const token = localStorage.getItem('token');
+      fetch(`http://localhost:8000/documents/${doc.document_id}/stop-viewing`, {
+        method: 'PUT',
+        keepalive: true,
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+    };
+    window.addEventListener('beforeunload', handleTabClose);
+    return () => window.removeEventListener('beforeunload', handleTabClose);
+  }, []);
 
   const getTargetStatuses = useCallback((role) => {
     if (['qmr', 'emr', 'enmr', 'smr', 'kahi', 'mr'].includes(role)) {
       return [`Menunggu ${role.toUpperCase()}`];
     }
     switch(role) {
-      case 'unit_head': return ['Menunggu Unit Head'];
-      case 'division_head': return ['Menunggu Division Head'];
-      case 'hrd': return ['Menunggu HRD', 'Menunggu Division Head']; // HRD memiliki 2 target status
+      case 'unit_head': return ['Menunggu Unit Head', 'Verifikasi Akhir Unit Head'];
+      case 'division_head': return ['Menunggu Division Head', 'Verifikasi Akhir Division Head'];
+      case 'hrd': return ['Menunggu HRD'];
       case 'mill_head': return ['Menunggu Mill Head'];
       default: return [];
     }
   }, []);
+
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const PAGE_SIZE = 10;
+
+  const [sortConfig, setSortConfig] = useState({ key: null, direction: 'desc' });
+
+  const handleSort = (key) => {
+    setSortConfig(prev => {
+      if (prev.key === key) return { key, direction: prev.direction === 'asc' ? 'desc' : 'asc' };
+      return { key, direction: 'asc' };
+    });
+  };
 
   const fetchDocuments = useCallback(async (showLoading = true) => {
     if (showLoading) setIsLoading(true);
@@ -46,6 +82,10 @@ export default function HeadDashboard({ mode }) {
       if (category) params.category = category;
       if (startDate) params.start_date = startDate;
       if (endDate) params.end_date = endDate;
+      if (sortConfig.key) {
+        params.sort_by = sortConfig.key;
+        params.sort_dir = sortConfig.direction;
+      }
       
       // Jika mode bukan pending dan ada filter status manual, kirim ke API
       if (mode !== 'pending' && statusFilter) {
@@ -62,11 +102,11 @@ export default function HeadDashboard({ mode }) {
     } finally {
       if (showLoading) setIsLoading(false);
     }
-  }, [mode, searchQuery, category, statusFilter, startDate, endDate, userRole, getTargetStatuses]);
+  }, [mode, searchQuery, category, statusFilter, startDate, endDate, userRole, getTargetStatuses, sortConfig]);
 
   useEffect(() => {
     setPage(1);
-  }, [mode, searchQuery, category, statusFilter, startDate, endDate]);
+  }, [mode, searchQuery, category, statusFilter, startDate, endDate, sortConfig]);
   
   useEffect(() => {
     const delayDebounceFn = setTimeout(() => fetchDocuments(true), 500);
@@ -85,10 +125,6 @@ export default function HeadDashboard({ mode }) {
   };
 
   const [downloadingId, setDownloadingId] = useState(null);
-
-  const [page, setPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
-  const PAGE_SIZE = 10;
 
   const handleDownload = async (doc) => {
     setDownloadingId(doc.document_id);
@@ -116,9 +152,12 @@ export default function HeadDashboard({ mode }) {
   const handleOpenReview = async (doc) => {
     setReviewDoc(doc);
     setShowRejectInput(false);
-    setRejectNotes('');
     setIsPdfLoading(true);
     setPdfPreviewUrl('');
+
+    if (isPendingAction(doc.status)) {
+      apiClient.put(`/documents/${doc.document_id}/start-viewing`).catch(() => {});
+    }
     
     try {
       const res = await apiClient.get(`/documents/${doc.document_id}/export`, { responseType: 'blob' });
@@ -133,10 +172,16 @@ export default function HeadDashboard({ mode }) {
 
   const handleCloseReview = () => {
     if (pdfPreviewUrl) window.URL.revokeObjectURL(pdfPreviewUrl);
+    if (reviewDoc) {
+      apiClient.put(`/documents/${reviewDoc.document_id}/stop-viewing`).catch(() => {});
+    }
     setReviewDoc(null);
     setPdfPreviewUrl('');
     setShowRejectInput(false);
-    setShowApproveConfirm(false); // Reset konfirmasi persetujuan
+    setRejectNotes('');
+    setRejectError('');
+    setShowRejectConfirm(false);
+    setShowApproveConfirm(false);
   };
 
   // Eksekusi API saat tombol "Ya, Setujui" di modal diklik
@@ -150,16 +195,26 @@ export default function HeadDashboard({ mode }) {
     }
   };
 
-  const submitReject = async () => {
-    if (!rejectNotes.trim()) return alert("Catatan revisi wajib diisi agar pengaju mengetahui letak kesalahannya.");
+  const handleRejectClick = () => {
+    if (!rejectNotes.trim()) {
+      setRejectError('Catatan revisi wajib diisi agar pengaju mengetahui letak kesalahannya.');
+      return;
+    }
+    setRejectError('');
+    setShowRejectConfirm(true);
+  };
+
+  const executeReject = async () => {
     try {
       await apiClient.put(`/documents/${reviewDoc.document_id}/reject`, {
         status: 'Direvisi',
         notes: rejectNotes
       });
+      setShowRejectConfirm(false);
       fetchDocuments(false);
       handleCloseReview();
     } catch (error) {
+      setShowRejectConfirm(false);
       alert("Gagal mengembalikan dokumen.");
     }
   };
@@ -168,13 +223,8 @@ export default function HeadDashboard({ mode }) {
   const isPendingAction = (status) => getTargetStatuses(userRole).includes(status);
 
   const getStatusStyle = (status) => {
-    if (isPendingAction(status)) return 'bg-[#fef3c7] text-[#92400e]';
-    switch (status?.toLowerCase()) {
-      case 'disetujui': return 'bg-[#d1fae5] text-[#065f46]';
-      case 'direvisi': return 'bg-[#fee2e2] text-[#b91c1c]';
-      case 'direview': return 'bg-[#dbeafe] text-[#1e40af]';
-      default: return 'bg-gray-100 text-gray-600';
-    }
+    if (isPendingAction(status)) return 'bg-amber-200 text-amber-900 ring-2 ring-amber-400';
+    return getBaseStatusStyle(status);
   };
 
   const getCategoryIcon = (cat) => {
@@ -225,13 +275,13 @@ export default function HeadDashboard({ mode }) {
         <table className="w-full text-sm text-center min-w-[1000px]">
           <thead className="bg-[#f4f6f8] text-[#8c949c] text-xs font-bold uppercase tracking-wider">
             <tr>
-              <th className="px-5 py-4 rounded-tl-[20px]">Kategori</th>
+              <SortableHeader label="Kategori" sortKey="category" sortConfig={sortConfig} onSort={handleSort} thClassName="rounded-tl-[20px]" />
               <th className="px-5 py-4">Initiator / Author</th>
               <th className="px-5 py-4">Seksi</th>
-              <th className="px-5 py-4">Judul</th>
-              <th className="px-5 py-4">No. Dokumen</th>
-              <th className="px-5 py-4 text-center">Status</th>
-              <th className="px-5 py-4">Diperbarui</th>
+              <SortableHeader label="Judul" sortKey="title" sortConfig={sortConfig} onSort={handleSort} className="justify-center mx-auto" thClassName="text-center" />
+              <SortableHeader label="No. Dokumen" sortKey="document_number" sortConfig={sortConfig} onSort={handleSort} />
+              <SortableHeader label="Status" sortKey="status" sortConfig={sortConfig} onSort={handleSort} className="justify-center mx-auto" thClassName="text-center" />
+              <SortableHeader label="Diperbarui" sortKey="updated_date" sortConfig={sortConfig} onSort={handleSort} />
               <th className="px-5 py-4 text-center rounded-tr-[20px]">Aksi</th>
             </tr>
           </thead>
@@ -262,10 +312,17 @@ export default function HeadDashboard({ mode }) {
                     <div className="max-w-[150px] mx-auto whitespace-normal break-words">{doc.document_number || '-'}</div>
                   </td>
                   <td className="px-5 py-4 align-middle">
-                    <div className="flex justify-center">
-                      <span className={`px-4 py-1.5 rounded-full text-[11px] font-bold w-max inline-block text-center shadow-sm ${getStatusStyle(doc.status)}`}>
+                    <div className="flex justify-center relative group">
+                      <span className={`px-4 py-1.5 rounded-full text-[11px] font-bold w-max inline-block text-center shadow-sm cursor-default ${getStatusStyle(doc.status)}`}>
                         {doc.status}
                       </span>
+                      {doc.status?.toLowerCase() === 'direvisi' && (
+                        <div className="absolute bottom-full mb-2 hidden group-hover:block w-max bg-white text-gray-600 text-xs font-medium py-2 px-3 rounded-lg shadow-[0_4px_12px_rgba(0,0,0,0.12)] border border-gray-100 z-20 transition-all">
+                          Ditolak oleh <span className="font-bold text-red-600">{doc.last_revision_by || 'Tidak diketahui'}</span>
+                          {doc.last_revision_by_role && <span className="text-gray-400"> ({getRoleLabel(doc.last_revision_by_role)})</span>}
+                          <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-white drop-shadow-sm"></div>
+                        </div>
+                      )}
                     </div>
                   </td>
                   <td className="px-5 py-4 text-gray-600 text-xs align-middle">
@@ -374,19 +431,26 @@ export default function HeadDashboard({ mode }) {
                     </label>
                     <textarea 
                       value={rejectNotes}
-                      onChange={(e) => setRejectNotes(e.target.value)}
+                      onChange={(e) => { setRejectNotes(e.target.value); if (rejectError) setRejectError(''); }}
                       placeholder="Jelaskan bagian mana yang perlu diperbaiki oleh pengaju..."
-                      className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-red-500 min-h-[80px] mb-3 bg-gray-50"
+                      className={`w-full px-4 py-3 border rounded-xl text-sm focus:outline-none focus:ring-2 min-h-[80px] mb-1.5 bg-gray-50 ${
+                        rejectError ? 'border-red-400 focus:ring-red-400' : 'border-gray-200 focus:ring-red-500'
+                      }`}
                     />
-                    <div className="flex justify-end gap-3">
+                    {rejectError && (
+                      <p className="text-xs text-red-600 font-semibold mb-3 flex items-center gap-1.5">
+                        <AlertTriangle size={13} /> {rejectError}
+                      </p>
+                    )}
+                    <div className="flex justify-end gap-3 mt-3">
                       <button 
-                        onClick={() => setShowRejectInput(false)} 
+                        onClick={() => { setShowRejectInput(false); setRejectError(''); }} 
                         className="px-5 py-2.5 text-sm font-bold text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-xl transition-colors"
                       >
                         Batal
                       </button>
                       <button 
-                        onClick={submitReject} 
+                        onClick={handleRejectClick} 
                         className="px-6 py-2.5 text-sm font-bold text-white bg-red-600 hover:bg-red-700 rounded-xl transition-colors flex items-center gap-2"
                       >
                         <AlertTriangle size={16} /> Kirim Catatan & Tolak
@@ -443,6 +507,35 @@ export default function HeadDashboard({ mode }) {
                 className="px-5 py-2.5 text-sm font-bold text-white bg-[#126863] hover:bg-[#0d4f4c] rounded-xl transition-colors w-full"
               >
                 Ya, Setujui
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Konfirmasi Reject/Revisi — BARU */}
+      {showRejectConfirm && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/40 backdrop-blur-sm px-4">
+          <div className="bg-white rounded-2xl w-full max-w-sm p-6 shadow-2xl relative text-center animate-in zoom-in-95 duration-200">
+            <div className="w-16 h-16 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-4">
+              <AlertTriangle size={32} />
+            </div>
+            <h3 className="text-xl font-black text-gray-800 mb-2">Konfirmasi Pengembalian</h3>
+            <p className="text-sm text-gray-500 mb-6">
+              Dokumen akan dikembalikan ke pengaju untuk direvisi. Pastikan catatan sudah jelas dan lengkap.
+            </p>
+            <div className="flex justify-center gap-3">
+              <button 
+                onClick={() => setShowRejectConfirm(false)} 
+                className="px-5 py-2.5 text-sm font-bold text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-xl transition-colors w-full"
+              >
+                Batal
+              </button>
+              <button 
+                onClick={executeReject} 
+                className="px-5 py-2.5 text-sm font-bold text-white bg-red-600 hover:bg-red-700 rounded-xl transition-colors w-full"
+              >
+                Ya, Kembalikan
               </button>
             </div>
           </div>
